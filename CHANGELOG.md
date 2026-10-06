@@ -2,6 +2,32 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Bước 4] Tích hợp AI OCR và Trích xuất Regex - 2026-10-06 19:58
+### Đã thực hiện
+- Xóa file giữ chỗ `lib/services/.gitkeep` và `lib/utils/.gitkeep`.
+- Xây dựng `OcrService` (`lib/services/ocr_service.dart`): Tích hợp `google_mlkit_text_recognition` xử lý offline với `TextRecognizer(script: TextRecognitionScript.latin)` và giải phóng tài nguyên `close()`.
+- Xây dựng `RegexHelper` (`lib/utils/regex_helper.dart`):
+  - `extractAmount`: bóc tách số tiền với định dạng Việt Nam (`150.000`, `150,000 VND`, `150k`), áp dụng heuristic ưu tiên dòng chứa từ khóa tổng tiền và nửa dưới hóa đơn.
+  - `extractDate`: bóc tách ngày tháng theo định dạng `dd/MM/yyyy`, `yyyy-MM-dd`, `dd-MM-yyyy`.
+  - `extractMerchantName`: nhận diện thương hiệu/cửa hàng qua từ khóa đặc trưng (WinMart, Highlands, Circle K...) hoặc fallback dòng đầu tiên hợp lệ.
+- Nâng cấp `ReviewTransactionScreen` (`lib/screens/review_transaction_screen.dart`) thành `StatefulWidget`:
+  - Tự động gọi OCR và trích xuất dữ liệu khi có `imagePath`.
+  - Hiển thị thumbnail ảnh hóa đơn ở nửa trên.
+  - Form nhập liệu ở nửa dưới với các `TextFormField` cho phép người dùng kiểm tra và chỉnh sửa.
+  - Nút "Lưu giao dịch" chuẩn bị cho tích hợp cơ sở dữ liệu.
+- Viết bộ Unit Test toàn diện `test/regex_helper_test.dart` (15 test cases) kiểm thử các kịch bản bóc tách dữ liệu hóa đơn.
+### File ảnh hưởng
+- `lib/services/.gitkeep` (xóa)
+- `lib/utils/.gitkeep` (xóa)
+- `lib/services/ocr_service.dart` (tạo mới)
+- `lib/utils/regex_helper.dart` (tạo mới)
+- `lib/screens/review_transaction_screen.dart` (chỉnh sửa)
+- `test/regex_helper_test.dart` (tạo mới)
+- `CHANGELOG.md` (cập nhật)
+- `DEV_HISTORY.md` (cập nhật)
+### Ghi chú
+- Pipeline OCR và bóc tách dữ liệu hoạt động 100% offline trên thiết bị Android, bảo đảm quyền riêng tư và tốc độ xử lý tức thì.
+
 ## [Bước 3] Xử lý Camera và Kính ngắm - 2026-10-06 19:48
 ### Đã thực hiện
 - Khai báo quyền Camera trong `android/app/src/main/AndroidManifest.xml`: `<uses-permission android:name="android.permission.CAMERA"/>`.

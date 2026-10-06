@@ -1,6 +1,73 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Bước 4] Tích hợp AI OCR và Trích xuất Regex - 2026-10-06 19:58
+### Mục tiêu
+Tích hợp Google ML Kit Text Recognition để nhận diện văn bản offline từ ảnh chụp hóa đơn, xây dựng bộ quy tắc Regex heuristic thông minh để bóc tách tự động Tên cửa hàng, Ngày giao dịch và Số tiền, đồng thời cập nhật giao diện ReviewTransactionScreen cho phép người dùng xem trước và chỉnh sửa dữ liệu.
+
+### Các việc đã làm
+1. **Kiểm tra Pre-flight**:
+   - `git ls-files android/build/`: Không có file build nào bị theo dõi.
+   - `git status`: Working tree hoàn toàn sạch (`nothing to commit, working tree clean`).
+   - `git log --oneline -n 2`: Ghi nhận commit gần nhất `0802790 feat: integrate camera preview, viewfinder overlay and capture flow`.
+2. **Xây dựng OcrService (`lib/services/ocr_service.dart`)**:
+   - Xóa `lib/services/.gitkeep`.
+   - Tạo class `OcrService` sử dụng `TextRecognizer(script: TextRecognitionScript.latin)`.
+   - Viết hàm `Future<String> extractText(String imagePath)` nạp `InputImage.fromFilePath(imagePath)` và trả về toàn bộ text thô (raw text), đảm bảo gọi `close()` giải phóng tài nguyên native C++ của ML Kit trong khối `finally`.
+3. **Xây dựng RegexHelper (`lib/utils/regex_helper.dart`)**:
+   - Xóa `lib/utils/.gitkeep`.
+   - `extractAmount(String text)`: Hỗ trợ nhận diện số tiền phân cách chấm (`150.000`), phân cách phẩy (`150,000`), viết tắt (`150k`), hàng triệu (`1.250.000`). Áp dụng heuristic ưu tiên các dòng chứa từ khóa tổng tiền ("Tổng cộng", "Total", "Thanh toán", "Tiền mặt") và ưu tiên con số lớn nhất ở nửa dưới hóa đơn.
+   - `extractDate(String text)`: Nhận diện định dạng ngày tháng `dd/MM/yyyy`, `yyyy-MM-dd`, `dd-MM-yyyy` với kiểm tra tính hợp lệ của ngày/tháng/năm.
+   - `extractMerchantName(String text)`: Nhận diện thương hiệu bán lẻ phổ biến (WinMart, Coopmart, Circle K, Highlands, v.v.) hoặc fallback chọn dòng text đầu tiên không rỗng sau khi loại bỏ các tiêu đề hóa đơn / mã số thuế.
+4. **Cập nhật màn hình `lib/screens/review_transaction_screen.dart`**:
+   - Chuyển đổi thành `StatefulWidget` với 3 `TextEditingController` cho MerchantName, Amount, Date.
+   - Trong `initState`, nếu `imagePath` tồn tại, tự động kích hoạt `OcrService` và `RegexHelper` để điền trước vào Form, hiển thị trạng thái `_isLoading`.
+   - Thiết kế giao diện gồm: Khung thumbnail ảnh hóa đơn ở nửa trên; Form với các `TextFormField` ở nửa dưới cho phép người dùng xem và sửa dữ liệu; Nút "Lưu giao dịch" (tạm thời in log `print("Save tapped")`).
+5. **Viết và thực thi Unit Test (`test/regex_helper_test.dart`)**:
+   - Viết 15 test cases toàn diện cho `extractAmount`, `extractDate`, và `extractMerchantName`.
+   - Chạy `flutter test`: 18/18 tests passed (15 regex tests + 3 widget tests).
+6. **Kiểm tra chất lượng**:
+   - Chạy `flutter analyze`: Đạt 0 issues found.
+
+### Sự cố & cách sửa
+| # | Lỗi/vấn đề (trích log ngắn) | Nguyên nhân | Cách sửa | Kết quả |
+|---|---|---|---|---|
+| 1 | Không có sự cố | Logic bóc tách Regex và cấu trúc OcrService được thiết kế cẩn thận, bao quát các định dạng tiền tệ và ngày tháng thực tế | Đã kiểm thử qua 15 test cases tự động trong `regex_helper_test.dart` | 18/18 tests pass 100% ngay từ lần chạy đầu |
+
+### Quyết định kỹ thuật
+- **Cấu trúc Regex & Heuristics**:
+  - *Số tiền*: Thay vì chỉ bắt số đầu tiên, hệ thống quét ưu tiên theo ngữ cảnh dòng (context-aware): dòng có từ khóa `tổng cộng`, `total`, `thanh toán` được ưu tiên hàng đầu. Nếu hóa đơn mờ không nhận diện được chữ "Tổng", heuristic sẽ quét nửa dưới của hóa đơn (nơi tổng tiền thường nằm) và chọn số có giá trị lớn nhất.
+  - *Hỗ trợ viết tắt 'k'*: Thói quen ghi hóa đơn cà phê/quán ăn tại Việt Nam hay dùng `50k`, `150k`. Regex nhận diện hậu tố `k`/`K` và tự động nhân 1000.
+  - *Ngày tháng*: Tự động chuẩn hóa chuỗi khớp regex thành đối tượng `DateTime`, xác thực tính hợp lệ (ngày <= 31, tháng <= 12, năm 2000-2100) trước khi format hiển thị `dd/MM/yyyy`.
+  - *Tên cửa hàng*: Bộ từ khóa bao quát các chuỗi bán lẻ lớn tại Việt Nam kết hợp thuật toán bỏ qua các từ khóa rác (MST, Địa chỉ, Hóa đơn bán hàng) giúp trích xuất tên cửa hàng chính xác cao.
+- **Vòng đời TextRecognizer**:
+  - Đóng `close()` ngay sau khi xử lý xong ảnh trong khối `finally` để tránh rò rỉ bộ nhớ native của Google ML Kit trên thiết bị di động.
+
+### File tạo / sửa / xóa
+- Tạo:
+  - `lib/services/ocr_service.dart`
+  - `lib/utils/regex_helper.dart`
+  - `test/regex_helper_test.dart`
+- Sửa:
+  - `lib/screens/review_transaction_screen.dart`
+  - `CHANGELOG.md`
+  - `DEV_HISTORY.md`
+- Xóa:
+  - `lib/services/.gitkeep`
+  - `lib/utils/.gitkeep`
+
+### Kết quả kiểm tra
+- `flutter analyze`: Sạch sẽ 100% (No issues found!).
+- `flutter test`: 18/18 tests passed (bao gồm toàn bộ Regex unit test và UI widget tests).
+
+### Việc tồn đọng cho Bước 5 (Tích hợp DB Isar)
+- Định nghĩa Collection Model trong `lib/models/`: `Expense` (id, amount, date, category, merchantName, imagePath) và `Category`.
+- Chạy `build_runner` sinh mã nguồn Isar (`*.g.dart`).
+- Xây dựng `IsarService` (`lib/services/isar_service.dart`) thực hiện các thao tác CRUD.
+- Kết nối sự kiện nút "Lưu giao dịch" trong `ReviewTransactionScreen` để ghi dữ liệu vào database và điều hướng về Dashboard.
+
+---
+
 ## [Bước 3] Xử lý Camera và Kính ngắm - 2026-10-06 19:48
 ### Mục tiêu
 Tích hợp phần cứng Camera vào ứng dụng, hiển thị luồng CameraPreview trực tiếp kèm kính ngắm (Viewfinder overlay) hỗ trợ căn chỉnh hóa đơn, các nút điều khiển đèn Flash và nút chụp ảnh, đồng thời thực thi luồng chuyển ảnh sang màn hình Review Transaction.
