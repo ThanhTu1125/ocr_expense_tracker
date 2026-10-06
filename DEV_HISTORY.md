@@ -1,6 +1,76 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Bước 2] Dựng bộ khung UI và Routing - 2026-10-06 19:30
+### Mục tiêu
+Xây dựng khung giao diện cơ bản (UI skeleton) cho 3 màn hình cốt lõi (Dashboard, Scanner, Review Transaction), thiết lập hệ thống điều hướng đặt tên (named routes) kết hợp route động, và cập nhật bộ kiểm thử tự động (widget test).
+
+### Các việc đã làm
+1. **Kiểm tra Pre-flight**:
+   - `git ls-files android/build/`: Không có file build nào bị theo dõi bởi Git.
+   - `git status`: Working tree hoàn toàn sạch (`nothing to commit, working tree clean`).
+   - `git log --oneline -n 3`: Ghi nhận commit gần nhất `3adce3c chore: init flutter project, libraries, folder structure`.
+   - `flutter --version`: Xác nhận Flutter 3.47.5 stable, Dart 3.13.4.
+2. **Tạo các màn hình giao diện (StatelessWidget)**:
+   - Xóa file giữ chỗ: `Remove-Item -Path "lib/screens/.gitkeep" -Force`.
+   - Tạo `lib/screens/dashboard_screen.dart` với `static const routeName = '/'`, AppBar "Dashboard", và FloatingActionButton icon `Icons.camera_alt` chuyển hướng tới `ScannerScreen.routeName`.
+   - Tạo `lib/screens/scanner_screen.dart` với `static const routeName = '/scanner'`, AppBar "Scanner".
+   - Tạo `lib/screens/review_transaction_screen.dart` với `static const routeName = '/review'`, nhận tham số tùy chọn `final String? imagePath`, AppBar "Review Transaction".
+3. **Cấu hình định tuyến tại `lib/main.dart`**:
+   - Khởi tạo MaterialApp với `useMaterial3: true` và `ColorScheme.fromSeed(seedColor: Colors.deepPurple)`.
+   - Cấu hình `initialRoute: DashboardScreen.routeName`, không dùng thuộc tính `home`.
+   - Bảng `routes`: đăng ký `DashboardScreen` và `ScannerScreen`.
+   - Hàm `onGenerateRoute`: bắt route `ReviewTransactionScreen.routeName`, trích xuất `settings.arguments` kiểm tra kiểu `String` để gán vào `imagePath`.
+   - Hàm `onUnknownRoute`: bắt các route không hợp lệ và fallback về `DashboardScreen`.
+4. **Cập nhật và thực thi kiểm thử (`test/widget_test.dart`)**:
+   - Viết 3 test case: (1) Dashboard hiển thị đúng AppBar & FAB; (2) Nhấn FAB điều hướng sang Scanner; (3) ReviewTransactionScreen dựng thành công khi `imagePath` là null.
+   - Chạy kiểm thử: `flutter test`.
+5. **Kiểm tra chất lượng và build APK**:
+   - Chạy `flutter analyze`: Đạt 0 issues.
+   - Chạy `flutter test`: Đạt 3/3 tests passed.
+   - Chạy `flutter build apk --debug`: Build thành công ra `app-debug.apk` trong 136.4s.
+   - Kiểm tra thiết bị: `flutter devices` (chưa có thiết bị kết nối).
+
+### Sự cố & cách sửa
+| # | Lỗi/vấn đề (trích log ngắn) | Nguyên nhân | Cách sửa | Kết quả |
+|---|---|---|---|---|
+| 1 | `Expected: exactly one matching candidate. Actual: Found 2 widgets with text "Dashboard"` và `Found 2 widgets with text "Review Transaction"` khi chạy `flutter test` lần 1 | Tiêu đề trong AppBar và nội dung placeholder trong body của màn hình đều cùng mang chuỗi text giống nhau ("Dashboard", "Review Transaction"), khiến matcher `find.text()` tìm thấy 2 widget | Bỏ placeholder trùng lặp trong body của `DashboardScreen` và `ReviewTransactionScreen`, giữ nguyên AppBar để tiêu đề là duy nhất | Cả 3 test case trong `flutter test` pass 100% |
+
+### Quyết định kỹ thuật
+- **Kết hợp `routes` và `onGenerateRoute`**:
+  - Đối với các màn hình không cần tham số khởi tạo (`DashboardScreen`, `ScannerScreen`), khai báo trực tiếp trong bảng `routes` giúp code ngắn gọn, rõ ràng và hiệu năng tra cứu O(1).
+  - Đối với màn hình cần nhận dữ liệu động (`ReviewTransactionScreen` cần nhận `imagePath` từ bước chụp hóa đơn), sử dụng `onGenerateRoute` cho phép ép kiểu an toàn và truyền đối số qua constructor thay vì phụ thuộc vào `ModalRoute.of(context)` bên trong widget, giúp widget dễ test độc lập và tuân thủ nguyên lý Dependency Injection.
+- **Khai báo `static const routeName` trong từng màn hình**:
+  - Đảm bảo tính đóng gói (encapsulation): màn hình tự quản lý định danh đường dẫn của chính nó, tránh magic strings phân tán rải rác trong ứng dụng và giúp IDE hỗ trợ autocomplete/refactoring chính xác.
+- **Cấu hình `onUnknownRoute`**:
+  - Đảm bảo cơ chế fallback an toàn, ngăn app bị crash nếu có lỗi điều hướng bất thường trong runtime.
+
+### File tạo / sửa / xóa
+- Tạo:
+  - `lib/screens/dashboard_screen.dart`
+  - `lib/screens/scanner_screen.dart`
+  - `lib/screens/review_transaction_screen.dart`
+- Sửa:
+  - `lib/main.dart`
+  - `test/widget_test.dart`
+  - `CHANGELOG.md`
+  - `DEV_HISTORY.md`
+- Xóa:
+  - `lib/screens/.gitkeep`
+
+### Kết quả kiểm tra
+- `flutter analyze`: Không có cảnh báo hoặc lỗi nào (No issues found!).
+- `flutter test`: 3/3 test cases passed hoàn toàn.
+- `flutter build apk --debug`: Thành công 100% (`√ Built build\app\outputs\flutter-apk\app-debug.apk` trong 136.4s).
+- `flutter devices`: Chưa có thiết bị Android thật kết nối (ghi chú và bỏ qua).
+
+### Việc tồn đọng cho Bước 3
+- Tích hợp package `camera`: khởi tạo camera controllers, hiển thị CameraPreview trên `ScannerScreen`, chụp ảnh và lưu tạm thời vào bộ nhớ file hệ thống.
+- Thêm quyền Camera vào `android/app/src/main/AndroidManifest.xml`.
+- Điều hướng từ `ScannerScreen` sang `ReviewTransactionScreen` mang theo `imagePath` thực tế sau khi chụp.
+
+---
+
 ## [Bước 1] Khởi tạo dự án - 2026-10-02 00:54
 ### Mục tiêu
 Khởi tạo cấu trúc dự án Flutter `ocr_expense_tracker` nhắm nền tảng Android, cài đặt đầy đủ các thư viện phụ thuộc (Camera, ML Kit, Isar, Provider, v.v.), thiết lập cấu hình Gradle minSdk, dọn dẹp mã nguồn mặc định và xác thực việc build thành công bản debug APK.

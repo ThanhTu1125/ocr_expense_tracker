@@ -2,6 +2,32 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Bước 2] Dựng bộ khung UI và Routing - 2026-10-06 19:30
+### Đã thực hiện
+- Tạo các màn hình giao diện dạng StatelessWidget với routeName tĩnh:
+  - `lib/screens/dashboard_screen.dart` (`routeName = '/'`): Scaffold gồm AppBar "Dashboard", FloatingActionButton icon camera chuyển hướng tới ScannerScreen.
+  - `lib/screens/scanner_screen.dart` (`routeName = '/scanner'`): Scaffold gồm AppBar "Scanner".
+  - `lib/screens/review_transaction_screen.dart` (`routeName = '/review'`): Scaffold gồm AppBar "Review Transaction", nhận tham số tùy chọn `imagePath`.
+- Xóa `lib/screens/.gitkeep`.
+- Cấu hình routing tại `lib/main.dart`:
+  - `useMaterial3: true` và `ColorScheme.fromSeed(seedColor: Colors.deepPurple)`.
+  - Thiết lập `initialRoute: DashboardScreen.routeName` (không dùng thuộc tính `home`).
+  - Định nghĩa bảng `routes` cố định cho Dashboard và Scanner.
+  - Cấu hình `onGenerateRoute` trích xuất `settings.arguments` truyền làm `imagePath` cho ReviewTransactionScreen.
+  - Cấu hình `onUnknownRoute` điều hướng fallback về DashboardScreen.
+- Cập nhật 3 widget tests trong `test/widget_test.dart` kiểm tra hiển thị Dashboard, chuyển màn hình khi bấm FAB, và dựng ReviewTransactionScreen khi imagePath là null.
+### File ảnh hưởng
+- `lib/screens/.gitkeep` (xóa)
+- `lib/screens/dashboard_screen.dart` (tạo mới)
+- `lib/screens/scanner_screen.dart` (tạo mới)
+- `lib/screens/review_transaction_screen.dart` (tạo mới)
+- `lib/main.dart` (chỉnh sửa)
+- `test/widget_test.dart` (chỉnh sửa)
+- `CHANGELOG.md` (cập nhật)
+- `DEV_HISTORY.md` (cập nhật)
+### Ghi chú
+- Tách biệt rõ ràng static routes (không tham số) và dynamic route (`onGenerateRoute` nhận tham số ảnh chụp) tạo tiền đề vững chắc cho việc tích hợp Camera và OCR ở Bước 3.
+
 ## [Bước 1] Khởi tạo dự án - 2026-10-02 00:54
 ### Đã thực hiện
 - Khởi tạo dự án Flutter `ocr_expense_tracker` (chỉ Android, org: `com.example`).
