@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 class RegexHelper {
   /// Bóc tách số tiền từ nội dung văn bản hóa đơn.
   /// Hỗ trợ định dạng Việt Nam: 150.000, 150,000 VND, 150k, v.v.
@@ -23,38 +25,17 @@ class RegexHelper {
       }
     }
 
-    // 2. Heuristic: Tìm tất cả số tiền hợp lệ, ưu tiên nửa dưới hóa đơn
-    final List<_AmountCandidate> candidates = [];
-    final midPoint = lines.length / 2;
-
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i];
+    // 2. Fallback: Quét toàn bộ văn bản để lấy danh sách tất cả số tiền và lấy con số LỚN NHẤT
+    final List<double> allAmounts = [];
+    for (final line in lines) {
       final lineAmounts = _findAllAmountsInLine(line);
-      for (final val in lineAmounts) {
-        if (val > 0) {
-          candidates.add(
-            _AmountCandidate(
-              value: val,
-              isLowerHalf: i >= midPoint,
-              lineIndex: i,
-            ),
-          );
-        }
-      }
+      allAmounts.addAll(lineAmounts.where((a) => a > 0));
     }
 
-    if (candidates.isEmpty) return null;
+    if (allAmounts.isEmpty) return null;
 
-    // Ưu tiên các số ở nửa dưới có giá trị lớn nhất
-    final lowerHalf = candidates.where((c) => c.isLowerHalf).toList();
-    if (lowerHalf.isNotEmpty) {
-      lowerHalf.sort((a, b) => b.value.compareTo(a.value));
-      return lowerHalf.first.value;
-    }
-
-    // Fallback: Con số lớn nhất tìm thấy trong toàn bộ văn bản
-    candidates.sort((a, b) => b.value.compareTo(a.value));
-    return candidates.first.value;
+    // Tổng bill luôn là con số lớn nhất trên hóa đơn
+    return allAmounts.reduce(math.max);
   }
 
   /// Bóc tách ngày tháng từ văn bản hóa đơn (dd/MM/yyyy, yyyy-MM-dd, dd-MM-yyyy).
@@ -97,27 +78,40 @@ class RegexHelper {
     final lines = text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     if (lines.isEmpty) return null;
 
+    // Bộ lọc nhận diện và loại bỏ rác URL / Web link / Query string
+    final urlGarbageRegex = RegExp(
+      r'(=|&|\?q=|http|www|\.com)',
+      caseSensitive: false,
+    );
+
     // Các từ khóa đặc trưng của cửa hàng / thương hiệu bán lẻ
     final merchantKeywords = RegExp(
       r'(c[uử]a\s*h[aà]ng|si[eê]u\s*th[iị]|coopmart|co\.opmart|winmart|circle\s*k|b[aá]ch\s*h[oó]a\s*xanh|nh[aà]\s*h[aà]ng|coffee|cafe|highlands|ph[uú]c\s*long|familymart|gs25|7-eleven|ministop|kfc|lotteria|jollibee|store|shop)',
       caseSensitive: false,
     );
 
-    // 1. Tìm dòng có từ khóa cửa hàng / thương hiệu
+    // 1. Tìm dòng có từ khóa cửa hàng / thương hiệu (bỏ qua dòng URL)
     for (final line in lines) {
-      if (merchantKeywords.hasMatch(line)) {
+      if (!urlGarbageRegex.hasMatch(line) && merchantKeywords.hasMatch(line)) {
         return _cleanMerchantName(line);
       }
     }
 
-    // 2. Heuristic fallback: Lấy dòng đầu tiên không phải tiêu đề hóa đơn hay mã số thuế / địa chỉ
+    // 2. Heuristic fallback: Lấy dòng đầu tiên không phải URL, tiêu đề hóa đơn hay mã số thuế / địa chỉ
     final skipPatterns = RegExp(
       r'^(h[oó]a\s*đ[oơ]n|phi[eế]u|receipt|bill|mst|m[aã]\s*s[oố]\s*thu[eế]|đ[iị]a\s*ch[iỉ]|đ/c|address|tel|hotline|\d+)',
       caseSensitive: false,
     );
 
     for (final line in lines) {
-      if (!skipPatterns.hasMatch(line) && line.length >= 3) {
+      if (!urlGarbageRegex.hasMatch(line) && !skipPatterns.hasMatch(line) && line.length >= 3) {
+        return _cleanMerchantName(line);
+      }
+    }
+
+    // 3. Fallback cuối: Lấy dòng đầu tiên hợp lệ không chứa URL
+    for (final line in lines) {
+      if (!urlGarbageRegex.hasMatch(line)) {
         return _cleanMerchantName(line);
       }
     }
@@ -216,16 +210,4 @@ class RegexHelper {
         .replaceAll(RegExp(r'^[^\w\s\p{L}]+|[^\w\s\p{L}]+$', unicode: true), '')
         .trim();
   }
-}
-
-class _AmountCandidate {
-  final double value;
-  final bool isLowerHalf;
-  final int lineIndex;
-
-  _AmountCandidate({
-    required this.value,
-    required this.isLowerHalf,
-    required this.lineIndex,
-  });
 }

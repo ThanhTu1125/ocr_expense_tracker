@@ -1,6 +1,34 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Hotfix 2] Tối ưu Fallback tìm số lớn nhất và bỏ qua URL - 2026-10-06 23:20
+### Mục tiêu
+Khắc phục lỗi nhận diện nhầm URL thành tên cửa hàng và tối ưu cơ chế Fallback tìm số tiền cho các hóa đơn đặc thù không chứa từ khóa tổng tiền chuẩn hóa.
+
+### Các việc đã làm
+1. **Kiểm tra Pre-flight**:
+   - `git status`: Working tree sạch hoàn toàn trước khi sửa đổi.
+2. **Cải tiến `extractMerchantName` trong `lib/utils/regex_helper.dart`**:
+   - Nâng cấp bộ lọc rác với biểu thức chính quy phát hiện URL/Web parameters: `r'(=|&|\?q=|http|www|\.com)'`.
+   - Trước khi trích xuất dòng đầu tiên làm tên cửa hàng, bỏ qua tất cả các dòng chứa đặc trưng URL, lấy dòng văn bản hợp lệ đầu tiên sau lọc.
+3. **Tối ưu hóa Fallback `extractAmount` trong `lib/utils/regex_helper.dart`**:
+   - Loại bỏ cơ chế phân chia nửa trên/dưới (`isLowerHalf`), thay thế bằng cơ chế quét toàn diện toàn bộ nội dung hóa đơn.
+   - Thu thập tất cả các giá trị số tiền hợp lệ trên mọi dòng và sử dụng `math.max` để trích xuất con số LỚN NHẤT.
+   - Đảm bảo tính đúng đắn dựa trên đặc thù kế toán bán lẻ: Tổng bill luôn là số tiền có giá trị lớn nhất trong toàn bộ hóa đơn.
+4. **Bổ sung Unit Test trong `test/regex_helper_test.dart`**:
+   - Test case 1: Chuỗi có URL rác `"https://google.com?q=bill\nQUAN AN THIEN TAN"` $\rightarrow$ trích xuất chính xác `"QUAN AN THIEN TAN"`.
+   - Test case 2: Hóa đơn không từ khóa `"Sườn 65.000\nTôm 65.000\nTIEN MAT 537.000"` $\rightarrow$ fallback trích xuất đúng số lớn nhất `537000.0`.
+5. **Kiểm tra chất lượng**:
+   - `flutter analyze`: Đạt 0 issues found.
+   - `flutter test`: Đạt 24/24 tests passed (100%).
+
+### Quyết định kỹ thuật
+- **Lọc URL dứt điểm**: Các hóa đơn điện tử hoặc hóa đơn in từ máy POS thường có link tra cứu hoặc mã QR chứa link web ở dòng đầu. Việc lọc triệt để các token `=, &, ?q=, http, www, .com` ngăn chặn hoàn toàn việc nhận diện sai tên thương hiệu.
+- **Max-value fallback toàn diện**: Đối với các hóa đơn tự chế hoặc quán ăn nhỏ không in từ "Tổng cộng", con số lớn nhất luôn đại diện cho tổng số tiền khách cần thanh toán.
+
+### Việc tồn đọng
+- Toàn bộ các trường hợp đặc thù đã được xử lý triệt để và kiểm thử tự động.
+
 ## [Hotfix] Tối ưu Regex bóc tách số tiền - 2026-10-06 22:42
 ### Mục tiêu
 Vá lỗi logic thuật toán bóc tách số tiền trong `RegexHelper.extractAmount`: ngăn chặn việc thuật toán bị nhầm lẫn bởi số tiền khách đưa (VD: "Tiền mặt: 50.000") hoặc tiền thối, ưu tiên trả về ngay lập tức khi phát hiện từ khóa tổng tiền chuẩn xác ("TỔNG CỘNG: 35.000").

@@ -2,6 +2,25 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Hotfix 2] Tối ưu Fallback tìm số lớn nhất và bỏ qua URL - 2026-10-06 23:20
+### Đã thực hiện
+- Nâng cấp bộ lọc rác cho `RegexHelper.extractMerchantName`:
+  - Trước khi lấy dòng hợp lệ đầu tiên làm tên cửa hàng, bỏ qua các dòng chứa ký tự đặc trưng của liên kết web/URL (`=`, `&`, `?q=`, `http`, `www`, `.com`).
+  - Lấy dòng chữ hợp lệ đầu tiên sau khi đã loại trừ các dòng URL này.
+- Tối ưu hóa cơ chế Fallback trong `RegexHelper.extractAmount`:
+  - Khi hóa đơn không có bất kỳ từ khóa tổng tiền ưu tiên nào, quét toàn bộ văn bản để thu thập tất cả các chuỗi số tiền hợp lệ.
+  - Sử dụng hàm `math.max` để trả về con số LỚN NHẤT tìm thấy trên toàn bộ hóa đơn (dựa trên nguyên lý tổng bill luôn là con số lớn nhất).
+- Bổ sung Unit Test trong `test/regex_helper_test.dart`:
+  - Test case kiểm tra chuỗi chứa URL rác `"https://google.com?q=bill\nQUAN AN THIEN TAN"` bóc tách đúng `"QUAN AN THIEN TAN"`.
+  - Test case kiểm tra hóa đơn không có từ khóa `"Sườn 65.000\nTôm 65.000\nTIEN MAT 537.000"` bóc tách đúng số lớn nhất `537000.0`.
+### File ảnh hưởng
+- `lib/utils/regex_helper.dart` (tối ưu bộ lọc URL và cơ chế max fallback)
+- `test/regex_helper_test.dart` (thêm 2 unit test mới)
+- `CHANGELOG.md` (cập nhật)
+- `DEV_HISTORY.md` (cập nhật)
+### Ghi chú
+- 24/24 bài kiểm thử vượt qua 100%.
+
 ## [Hotfix] Tối ưu Regex bóc tách số tiền - 2026-10-06 22:42
 ### Đã thực hiện
 - Tối ưu thuật toán `RegexHelper.extractAmount` trong `lib/utils/regex_helper.dart`:

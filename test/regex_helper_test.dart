@@ -50,6 +50,12 @@ void main() {
       expect(amount, equals(35000.0));
     });
 
+    test('fallback: lấy số tiền lớn nhất khi không có từ khóa tổng tiền', () {
+      const receipt = "Sườn 65.000\nTôm 65.000\nTIEN MAT 537.000";
+      final amount = RegexHelper.extractAmount(receipt);
+      expect(amount, equals(537000.0));
+    });
+
     test('heuristic: lấy số tiền lớn nhất ở nửa dưới khi không có từ khóa', () {
       const receipt = '''
       Mục 1: 20.000
@@ -143,6 +149,12 @@ void main() {
       ''';
       final merchant = RegexHelper.extractMerchantName(receipt);
       expect(merchant, equals('CƠM TẤM BA GHIỀN'));
+    });
+
+    test('bỏ qua dòng chứa rác URL và lấy tên cửa hàng hợp lệ đầu tiên', () {
+      const receipt = "https://google.com?q=bill\nQUAN AN THIEN TAN";
+      final merchant = RegexHelper.extractMerchantName(receipt);
+      expect(merchant, equals('QUAN AN THIEN TAN'));
     });
 
     test('trả về null khi văn bản rỗng', () {
