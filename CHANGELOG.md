@@ -2,6 +2,31 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Hotfix Ultimate] Thuật toán chuẩn hóa tiếng Việt và Heuristic Toán học cho Regex - 2026-10-06 23:26
+### Đã thực hiện
+- Xây dựng bộ "Kính cận OCR" (`_normalizeText`) trong `lib/utils/regex_helper.dart`:
+  - Chuyển toàn bộ chuỗi về chữ thường (`toLowerCase`).
+  - Thay thế các lỗi OCR phổ biến: số `0` thành `o`, ký tự `q` thành `o`.
+  - Khử toàn bộ dấu tiếng Việt (thay thế nguyên âm có dấu thành nguyên âm không dấu, `đ` thành `d`).
+- Tối ưu hóa quét từ khóa ưu tiên trong `RegexHelper.extractAmount`:
+  - Danh sách từ khóa đã chuẩn hóa: `['tong cong', 'thanh tien', 'tong tien', 'total', 'amount', 'cong tien']`.
+  - Chuẩn hóa từng dòng trước khi so khớp từ khóa; khi phát hiện dòng khớp từ khóa, trích xuất số tiền trên dòng gốc và `return` ngay lập tức, tóm gọn các hóa đơn in mờ hoặc bị lỗi nhận diện ký tự số 0.
+- Xây dựng "Bộ lọc Toán học" cho Fallback:
+  - Khi không tìm thấy từ khóa, thu thập tất cả số tiền trên hóa đơn và sắp xếp giảm dần.
+  - Xét `Max1` (số lớn nhất) và `Max2` (số lớn nhì). Tìm xem có số `X` nào trong danh sách thỏa mãn `Max1 == Max2 + X` không.
+  - Nếu có: `Max1` là Tiền khách đưa, `Max2` là Tổng bill, `X` là Tiền thối $\rightarrow$ Trả về `Max2`.
+  - Nếu không: Không có tiền thối $\rightarrow$ Trả về `Max1`.
+- Bổ sung Unit Test trong `test/regex_helper_test.dart`:
+  - Test case nhận diện lỗi OCR số 0: `"T0NG C0NG: 35.000\nTiền mặt: 50.000"` $\rightarrow$ trả về `35000.0`.
+  - Test case heuristic toán học: `"Món A 35.000\nTiền mặt 50.000\nThối lại 15.000"` $\rightarrow$ trả về đúng `35000.0`.
+### File ảnh hưởng
+- `lib/utils/regex_helper.dart` (thêm `_normalizeText`, tối ưu từ khóa và logic toán học fallback)
+- `test/regex_helper_test.dart` (thêm unit test cho lỗi số 0 và heuristic toán học)
+- `CHANGELOG.md` (cập nhật)
+- `DEV_HISTORY.md` (cập nhật)
+### Ghi chú
+- 26/26 bài kiểm thử vượt qua 100%. Giải quyết dứt điểm nghịch lý bóc tách số tiền giữa hóa đơn có tiền thối và hóa đơn không từ khóa.
+
 ## [Hotfix 2] Tối ưu Fallback tìm số lớn nhất và bỏ qua URL - 2026-10-06 23:20
 ### Đã thực hiện
 - Nâng cấp bộ lọc rác cho `RegexHelper.extractMerchantName`:

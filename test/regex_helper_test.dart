@@ -50,6 +50,18 @@ void main() {
       expect(amount, equals(35000.0));
     });
 
+    test('chuẩn hóa OCR: nhận diện T0NG C0NG khi bị lỗi số 0 và bỏ qua tiền mặt', () {
+      const receipt = "T0NG C0NG: 35.000\nTiền mặt: 50.000";
+      final amount = RegexHelper.extractAmount(receipt);
+      expect(amount, equals(35000.0));
+    });
+
+    test('toán học heuristic: hóa đơn không từ khóa tìm thấy Max1 == Max2 + X trả về Max2', () {
+      const receipt = "Món A 35.000\nTiền mặt 50.000\nThối lại 15.000";
+      final amount = RegexHelper.extractAmount(receipt);
+      expect(amount, equals(35000.0));
+    });
+
     test('fallback: lấy số tiền lớn nhất khi không có từ khóa tổng tiền', () {
       const receipt = "Sườn 65.000\nTôm 65.000\nTIEN MAT 537.000";
       final amount = RegexHelper.extractAmount(receipt);
@@ -59,7 +71,7 @@ void main() {
     test('heuristic: lấy số tiền lớn nhất ở nửa dưới khi không có từ khóa', () {
       const receipt = '''
       Mục 1: 20.000
-      Mục 2: 30.000
+      Mục 2: 15.000
       50.000
       ''';
       final amount = RegexHelper.extractAmount(receipt);

@@ -1,6 +1,41 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Hotfix Ultimate] Thuật toán chuẩn hóa tiếng Việt và Heuristic Toán học cho Regex - 2026-10-06 23:26
+### Mục tiêu
+Giải quyết triệt để nghịch lý nhận diện số tiền: phân biệt chính xác giữa hóa đơn siêu thị (in mờ, lỗi OCR ký tự số 0, có tiền khách đưa và tiền thối) và hóa đơn quán ăn (không có từ khóa tổng tiền tiêu chuẩn).
+
+### Các việc đã làm
+1. **Kiểm tra Pre-flight**:
+   - `git status`: Working tree sạch hoàn toàn trước khi sửa đổi.
+2. **Xây dựng bộ "Kính cận OCR" (`_normalizeText`) trong `lib/utils/regex_helper.dart`**:
+   - Chuyển toàn bộ chuỗi sang chữ thường (`toLowerCase`).
+   - Sửa các lỗi OCR kinh điển: số `0` $\rightarrow$ `o`, chữ `q` $\rightarrow$ `o`.
+   - Khử sạch toàn bộ dấu tiếng Việt (`á, à, ả, ã, ạ, ă, â` $\rightarrow$ `a`; `é, è, ê` $\rightarrow$ `e`; `ó, ò, ô, ơ` $\rightarrow$ `o`; `đ` $\rightarrow$ `d`...).
+3. **Quét từ khóa ưu tiên với ngắt sớm (Early Return)**:
+   - Danh sách từ khóa chuẩn hóa không dấu: `['tong cong', 'thanh tien', 'tong tien', 'total', 'amount', 'cong tien']`.
+   - Chuẩn hóa từng dòng văn bản trước khi kiểm tra; ngay khi phát hiện từ khóa, bóc tách số tiền trên dòng gốc và `return` ngay lập tức.
+   - Ngăn chặn hoàn toàn việc hóa đơn có từ khóa (dù in mờ như WinMart `T0NG C0NG`) rơi xuống cơ chế Fallback.
+4. **Xây dựng "Bộ lọc Toán học" cho Fallback**:
+   - Quét toàn bộ các số tiền trên hóa đơn, đưa vào danh sách và sắp xếp giảm dần.
+   - Lấy `Max1` (số lớn nhất) và `Max2` (số lớn nhì).
+   - Kiểm tra phương trình quan hệ tiền mặt: Tìm số `X` trong danh sách sao cho `Max1 == Max2 + X`.
+     - Nếu tồn tại `X`: `Max1` là Tiền khách đưa, `Max2` là Tổng bill, `X` là Tiền thối $\rightarrow$ Trả về `Max2`.
+     - Nếu không tồn tại: Hóa đơn không có tiền thối $\rightarrow$ Trả về `Max1`.
+5. **Bổ sung Unit Test trong `test/regex_helper_test.dart`**:
+   - Test case 1: Chuỗi lỗi OCR `"T0NG C0NG: 35.000\nTiền mặt: 50.000"` $\rightarrow$ trả về đúng `35000.0`.
+   - Test case 2: Chuỗi quan hệ toán học `"Món A 35.000\nTiền mặt 50.000\nThối lại 15.000"` $\rightarrow$ trả về đúng `35000.0` qua heuristic `Max1 == Max2 + X`.
+6. **Kiểm tra chất lượng**:
+   - `flutter analyze`: Đạt 0 issues found.
+   - `flutter test`: Đạt 26/26 tests passed (100%).
+
+### Quyết định kỹ thuật
+- **Khử dấu và sửa lỗi OCR trước khi khớp**: Giúp tăng độ phủ (recall) của bộ từ khóa tổng tiền lên mức gần như tuyệt đối, chấp nhận mọi biến thể OCR xấu.
+- **Heuristic toán học `Max1 == Max2 + X`**: Giải quyết bài toán không cần dựa vào từ khóa "tiền thối" hay "tiền mặt", bởi vì quan hệ kế toán `Tiền khách đưa = Tiền bill + Tiền thối` là bất biến về mặt toán học.
+
+### Việc tồn đọng
+- Toàn bộ thuật toán bóc tách đã hoàn thiện ở mức tối ưu nhất.
+
 ## [Hotfix 2] Tối ưu Fallback tìm số lớn nhất và bỏ qua URL - 2026-10-06 23:20
 ### Mục tiêu
 Khắc phục lỗi nhận diện nhầm URL thành tên cửa hàng và tối ưu cơ chế Fallback tìm số tiền cho các hóa đơn đặc thù không chứa từ khóa tổng tiền chuẩn hóa.

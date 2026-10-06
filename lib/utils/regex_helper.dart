@@ -1,6 +1,43 @@
-import 'dart:math' as math;
-
 class RegexHelper {
+  static const List<String> _priorityKeywords = [
+    'tong cong',
+    'thanh tien',
+    'tong tien',
+    'total',
+    'amount',
+    'cong tien',
+  ];
+
+  /// Chuẩn hóa văn bản: loại bỏ toàn bộ dấu tiếng Việt và sửa lỗi OCR phổ biến (0 -> o, q -> o)
+  static String _normalizeText(String input) {
+    var result = input.toLowerCase();
+
+    // Thay thế các lỗi OCR phổ biến: số 0 -> chữ o, q -> o
+    result = result.replaceAll('0', 'o').replaceAll('q', 'o');
+
+    // Loại bỏ toàn bộ dấu tiếng Việt
+    const vietnameseMap = {
+      'a': 'áàảãạăắằẳẵặâấầẩẫậ',
+      'e': 'éèẻẽẹêếềểễệ',
+      'i': 'íìỉĩị',
+      'o': 'óòỏõọôốồổỗộơớờởỡợ',
+      'u': 'úùủũụưứừửữự',
+      'y': 'ýỳỷỹỵ',
+      'd': 'đ',
+    };
+
+    vietnameseMap.forEach((nonAccent, accents) {
+      for (int i = 0; i < accents.length; i++) {
+        result = result.replaceAll(accents[i], nonAccent);
+      }
+    });
+
+    // Chuẩn hóa khoảng trắng
+    result = result.replaceAll(RegExp(r'\s+'), ' ');
+
+    return result;
+  }
+
   /// Bóc tách số tiền từ nội dung văn bản hóa đơn.
   /// Hỗ trợ định dạng Việt Nam: 150.000, 150,000 VND, 150k, v.v.
   static double? extractAmount(String text) {
@@ -9,15 +46,11 @@ class RegexHelper {
     final lines = text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     if (lines.isEmpty) return null;
 
-    // Các từ khóa ưu tiên chỉ tổng tiền (loại trừ tuyệt đối: tiền mặt, cash, tiền thối)
-    final totalKeywords = RegExp(
-      r'(t[oổ]ng\s*c[oộ]ng|t[oổ]ng\s*ti[eề]n|th[aà]nh\s*ti[eề]n|t[oổ]ng\s*thanh\s*to[aá]n|total|amount)',
-      caseSensitive: false,
-    );
-
-    // 1. Duyệt từng dòng từ trên xuống dưới, ưu tiên từ khóa tổng tiền và return ngay lập tức
+    // 1. Quét từng dòng, chuẩn hóa qua "Kính cận OCR" và kiểm tra từ khóa ưu tiên
     for (final line in lines) {
-      if (totalKeywords.hasMatch(line)) {
+      final normalized = _normalizeText(line);
+      final hasKeyword = _priorityKeywords.any((kw) => normalized.contains(kw));
+      if (hasKeyword) {
         final amount = _findLargestAmountInLine(line);
         if (amount != null && amount > 0) {
           return amount;
@@ -25,7 +58,7 @@ class RegexHelper {
       }
     }
 
-    // 2. Fallback: Quét toàn bộ văn bản để lấy danh sách tất cả số tiền và lấy con số LỚN NHẤT
+    // 2. Logic Fallback Mới: Heuristic Toán học
     final List<double> allAmounts = [];
     for (final line in lines) {
       final lineAmounts = _findAllAmountsInLine(line);
@@ -33,9 +66,27 @@ class RegexHelper {
     }
 
     if (allAmounts.isEmpty) return null;
+    if (allAmounts.length == 1) return allAmounts.first;
 
-    // Tổng bill luôn là con số lớn nhất trên hóa đơn
-    return allAmounts.reduce(math.max);
+    // Sắp xếp giảm dần (Descending)
+    allAmounts.sort((a, b) => b.compareTo(a));
+
+    final max1 = allAmounts[0];
+    final max2 = allAmounts[1];
+
+    // Kiểm tra Heuristic Toán học: Tìm X thỏa mãn Max1 == Max2 + X
+    if (max1 > max2) {
+      for (int i = 2; i < allAmounts.length; i++) {
+        final x = allAmounts[i];
+        if ((max1 - (max2 + x)).abs() < 1.0) {
+          // Max1 là Tiền khách đưa, Max2 là Tổng bill, X là Tiền thối
+          return max2;
+        }
+      }
+    }
+
+    // Không có tiền thối: số lớn nhất chính là tổng bill
+    return max1;
   }
 
   /// Bóc tách ngày tháng từ văn bản hóa đơn (dd/MM/yyyy, yyyy-MM-dd, dd-MM-yyyy).
