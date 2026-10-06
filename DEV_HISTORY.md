@@ -1,6 +1,80 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Bước 5] Thiết lập cơ sở dữ liệu Isar - 2026-10-06 20:10
+### Mục tiêu
+Định nghĩa schema dữ liệu cho các giao dịch chi tiêu (`TransactionModel`) bằng Isar Community, sinh mã nguồn tự động `*.g.dart`, xây dựng `DatabaseService` để thực hiện lưu trữ/truy vấn giao dịch, và hoàn thiện luồng lưu dữ liệu từ màn hình Review Transaction bao gồm sao chép ảnh vào persistent storage.
+
+### Các việc đã làm
+1. **Kiểm tra Pre-flight**:
+   - `git ls-files android/build/`: Không có file build nào bị theo dõi.
+   - `git status`: Khôi phục các ký tự xuống dòng dư thừa từ VS Code autoformat, working tree sạch hoàn toàn (`nothing to commit, working tree clean`).
+   - `git log --oneline -n 2`: Ghi nhận commit gần nhất `ec6971d feat: integrate google ml kit ocr and regex parsing`.
+2. **Định nghĩa Schema Model (`lib/models/transaction.dart`)**:
+   - Xóa `lib/models/.gitkeep`.
+   - Định nghĩa enum `TransactionCategory`: `food, study, travel, gear, entertainment`.
+   - Định nghĩa collection `TransactionModel` với annotation `@collection`, các trường: `Id id = Isar.autoIncrement`, `double amount`, `String merchantName`, `DateTime date`, `@enumerated TransactionCategory category`, `String imagePath`.
+3. **Thực thi Code Generation**:
+   - Lệnh: `dart run build_runner build`.
+   - Sinh thành công mã nguồn `lib/models/transaction.g.dart` (sau khi đồng bộ kiểu dữ liệu constructor parameter với thuộc tính model).
+4. **Xây dựng DatabaseService (`lib/services/database_service.dart`)**:
+   - Mở kết nối Isar NoSQL tại đường dẫn `getApplicationDocumentsDirectory()` với schema `TransactionModelSchema`.
+   - Viết các phương thức:
+     - `saveTransaction(TransactionModel tx)`: Ghi giao dịch an toàn trong `writeTxn`.
+     - `getAllTransactions()`: Truy vấn danh sách giao dịch sắp xếp theo ngày giảm dần (`sortByDateDesc()`).
+     - `getTransactionsByWeek()`: Lọc các giao dịch trong tuần (Thứ Hai đến Chủ Nhật).
+     - `getExpensesByCategory()`: Gom nhóm và tính tổng chi tiêu theo từng danh mục.
+5. **Cập nhật màn hình Review (`lib/screens/review_transaction_screen.dart`)**:
+   - Thêm `DropdownButtonFormField<TransactionCategory>` để người dùng chọn danh mục chi tiêu.
+   - Validate form bắt buộc nhập tên cửa hàng, số tiền > 0, ngày hợp lệ.
+   - Sao chép file ảnh từ thư mục cache tạm thời của Camera sang thư mục lưu trữ cố định của ứng dụng (`getApplicationDocumentsDirectory()`) với tên duy nhất theo timestamp (`receipt_<timestamp>.<ext>`).
+   - Lưu đối tượng `TransactionModel` vào Isar Database qua `DatabaseService.instance.saveTransaction()`.
+   - Hiển thị SnackBar thông báo thành công và điều hướng quay hẳn về Dashboard bằng `Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false)`.
+6. **Kiểm tra chất lượng**:
+   - Sửa cảnh báo deprecated `value` thành `initialValue` trong `DropdownButtonFormField`.
+   - Chạy `flutter analyze`: Đạt 0 issues.
+   - Chạy `flutter test`: Đạt 18/18 tests passed.
+
+### Sự cố & cách sửa
+| # | Lỗi/vấn đề (trích log ngắn) | Nguyên nhân | Cách sửa | Kết quả |
+|---|---|---|---|---|
+| 1 | `Constructor parameter type does not match property type DateTime? date` khi chạy `build_runner` lần 1 | Isar Generator yêu cầu kiểu dữ liệu của tham số constructor phải khớp chính xác với kiểu thuộc tính của model (`DateTime` non-nullable) | Điều chỉnh constructor thành `required this.date` đồng nhất với thuộc tính `DateTime date` | `build_runner` biên dịch thành công sinh file `transaction.g.dart` |
+| 2 | `'value' is deprecated and shouldn't be used. Use initialValue instead` trong `review_transaction_screen.dart` | Flutter 3.33+ deprecate thuộc tính `value` trong `DropdownButtonFormField` | Đổi sang sử dụng `initialValue: _selectedCategory` | `flutter analyze` đạt 0 issues |
+
+### Quyết định kỹ thuật
+- **Sử dụng `isar_community`**:
+  - Tuân thủ đúng quy ước import `package:isar_community/isar.dart`, tương thích 100% với Android Gradle Plugin 8.x mà không cần can thiệp Pub Cache.
+- **Quản lý ảnh bằng Persistent Storage**:
+  - File ảnh chụp từ `CameraController.takePicture()` chỉ nằm trong thư mục cache tạm thời của hệ điều hành (có thể bị dọn dẹp giải phóng dung lượng bất cứ lúc nào). Do đó, việc sao chép sang thư mục `getApplicationDocumentsDirectory()` đảm bảo ảnh hóa đơn luôn tồn tại vĩnh viễn cùng với bản ghi trong database.
+- **Tính toán sẵn phương thức thống kê**:
+  - Các hàm `getTransactionsByWeek()` và `getExpensesByCategory()` được xây dựng sẵn trong `DatabaseService` giúp tối ưu truy vấn sẵn sàng phục vụ cho Bước 6 (vẽ biểu đồ chi tiêu CustomPainter).
+
+### File tạo / sửa / xóa
+- Tạo:
+  - `lib/models/transaction.dart`
+  - `lib/models/transaction.g.dart`
+  - `lib/services/database_service.dart`
+- Sửa:
+  - `lib/screens/review_transaction_screen.dart`
+  - `CHANGELOG.md`
+  - `DEV_HISTORY.md`
+- Xóa:
+  - `lib/models/.gitkeep`
+
+### Kết quả kiểm tra
+- `flutter analyze`: 0 issues found!
+- `flutter test`: 18/18 tests passed 100%.
+
+### Việc tồn đọng cho Bước 6 (Vẽ biểu đồ CustomPainter & Hiển thị Dashboard)
+- Dựng giao diện Dashboard (`lib/screens/dashboard_screen.dart`):
+  - Hiển thị danh sách các giao dịch gần đây lấy từ `DatabaseService.getAllTransactions()`.
+  - Hiển thị tổng chi tiêu trong tuần và chi tiêu theo danh mục.
+- Xây dựng Widget biểu đồ tùy biến (`CustomPainter`) không dùng thư viện ngoài:
+  - Biểu đồ cột (Bar Chart) chi tiêu các ngày trong tuần.
+  - Biểu đồ tròn (Pie/Donut Chart) phân bổ chi tiêu theo danh mục.
+
+---
+
 ## [Bước 4] Tích hợp AI OCR và Trích xuất Regex - 2026-10-06 19:58
 ### Mục tiêu
 Tích hợp Google ML Kit Text Recognition để nhận diện văn bản offline từ ảnh chụp hóa đơn, xây dựng bộ quy tắc Regex heuristic thông minh để bóc tách tự động Tên cửa hàng, Ngày giao dịch và Số tiền, đồng thời cập nhật giao diện ReviewTransactionScreen cho phép người dùng xem trước và chỉnh sửa dữ liệu.

@@ -2,6 +2,32 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Bước 5] Thiết lập cơ sở dữ liệu Isar - 2026-10-06 20:10
+### Đã thực hiện
+- Xóa file giữ chỗ `lib/models/.gitkeep`.
+- Định nghĩa Schema Isar trong `lib/models/transaction.dart`:
+  - Enum `TransactionCategory` (`food`, `study`, `travel`, `gear`, `entertainment`).
+  - Collection `TransactionModel` với các trường `id`, `amount`, `merchantName`, `date`, `category`, `imagePath`.
+- Thực thi `dart run build_runner build` sinh mã nguồn Isar type-safe `lib/models/transaction.g.dart`.
+- Xây dựng `DatabaseService` (`lib/services/database_service.dart`):
+  - Khởi tạo kết nối Isar NoSQL lưu tại thư mục app documents qua `path_provider`.
+  - Triển khai các hàm: `init()`, `saveTransaction()`, `getAllTransactions()` (sắp xếp ngày giảm dần), `getTransactionsByWeek()`, và `getExpensesByCategory()`.
+- Cập nhật màn hình `ReviewTransactionScreen` (`lib/screens/review_transaction_screen.dart`):
+  - Bổ sung Dropdown chọn danh mục chi tiêu `TransactionCategory`.
+  - Validate form nhập liệu (số tiền > 0, ngày tháng chuẩn).
+  - Tự động copy ảnh hóa đơn từ bộ nhớ tạm camera sang thư mục lưu trữ cố định của ứng dụng (`getApplicationDocumentsDirectory`).
+  - Ghi đối tượng `TransactionModel` vào cơ sở dữ liệu Isar và điều hướng về Dashboard bằng `pushNamedAndRemoveUntil`.
+### File ảnh hưởng
+- `lib/models/.gitkeep` (xóa)
+- `lib/models/transaction.dart` (tạo mới)
+- `lib/models/transaction.g.dart` (sinh tự động)
+- `lib/services/database_service.dart` (tạo mới)
+- `lib/screens/review_transaction_screen.dart` (chỉnh sửa)
+- `CHANGELOG.md` (cập nhật)
+- `DEV_HISTORY.md` (cập nhật)
+### Ghi chú
+- Dữ liệu giao dịch được lưu trữ cục bộ 100% bằng Isar NoSQL database hiệu năng cao, ảnh hóa đơn được bảo lưu an toàn trong persistent storage của ứng dụng.
+
 ## [Bước 4] Tích hợp AI OCR và Trích xuất Regex - 2026-10-06 19:58
 ### Đã thực hiện
 - Xóa file giữ chỗ `lib/services/.gitkeep` và `lib/utils/.gitkeep`.
