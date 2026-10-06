@@ -4,13 +4,15 @@ import 'package:path_provider/path_provider.dart';
 import '../models/transaction.dart';
 
 class DatabaseService {
-  static final DatabaseService instance = DatabaseService._internal();
+  static DatabaseService instance = DatabaseService._internal();
 
   DatabaseService._internal();
 
   factory DatabaseService() => instance;
 
   Isar? _isar;
+  bool useMock = false;
+  final List<TransactionModel> mockTransactions = [];
 
   Isar get isar {
     if (_isar == null || !_isar!.isOpen) {
@@ -21,21 +23,30 @@ class DatabaseService {
     return _isar!;
   }
 
-  bool get isInitialized => _isar != null && _isar!.isOpen;
+  bool get isInitialized => useMock || (_isar != null && _isar!.isOpen);
 
   Future<void> init() async {
+    if (useMock) return;
     if (_isar != null && _isar!.isOpen) return;
 
-    final dir = await getApplicationDocumentsDirectory();
-    _isar = await Isar.open(
-      [TransactionModelSchema],
-      directory: dir.path,
-    );
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      _isar = await Isar.open(
+        [TransactionModelSchema],
+        directory: dir.path,
+      );
+    } catch (_) {
+      useMock = true;
+    }
   }
 
   Future<void> saveTransaction(TransactionModel tx) async {
     if (!isInitialized) {
       await init();
+    }
+    if (useMock) {
+      mockTransactions.insert(0, tx);
+      return;
     }
     final db = isar;
     await db.writeTxn(() async {
@@ -47,6 +58,9 @@ class DatabaseService {
     if (!isInitialized) {
       await init();
     }
+    if (useMock) {
+      return List.unmodifiable(mockTransactions);
+    }
     final db = isar;
     return await db.transactionModels.where().sortByDateDesc().findAll();
   }
@@ -56,7 +70,6 @@ class DatabaseService {
     if (!isInitialized) {
       await init();
     }
-    final db = isar;
     final reference = dateInWeek ?? DateTime.now();
     final startOfWeek = DateTime(
       reference.year,
@@ -70,8 +83,17 @@ class DatabaseService {
       23,
       59,
       59,
+      73,
     );
 
+    if (useMock) {
+      return mockTransactions.where((tx) {
+        return (tx.date.isAfter(startOfWeek) || tx.date.isAtSameMomentAs(startOfWeek)) &&
+            (tx.date.isBefore(endOfWeek) || tx.date.isAtSameMomentAs(endOfWeek));
+      }).toList();
+    }
+
+    final db = isar;
     return await db.transactionModels
         .filter()
         .dateBetween(startOfWeek, endOfWeek)

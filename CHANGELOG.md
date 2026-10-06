@@ -2,6 +2,37 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Bước 6] Vẽ biểu đồ CustomPainter & Hoàn thiện Dashboard - 2026-10-06 20:35
+### Đã thực hiện
+- Xóa file giữ chỗ `lib/widgets/.gitkeep`.
+- Xây dựng `PieChartPainter` (`lib/widgets/pie_chart_painter.dart`):
+  - Kế thừa `CustomPainter`, vẽ biểu đồ hình vành khuyên (Donut) bằng `canvas.drawArc` trên Canvas thuần, không dùng thư viện ngoài.
+  - Hỗ trợ gán màu trực quan theo từng danh mục chi tiêu (`food`, `study`, `travel`, `gear`, `entertainment`).
+  - Xử lý mượt mà trạng thái dữ liệu trống (vẽ vòng tròn xám và văn bản thông báo trung tâm).
+- Xây dựng `BarChartPainter` (`lib/widgets/bar_chart_painter.dart`):
+  - Kế thừa `CustomPainter`, vẽ biểu đồ cột chi tiêu 7 ngày trong tuần bằng `canvas.drawRect` trên Canvas thuần.
+  - Chiều cao cột tỷ lệ chuẩn xác với số tiền chi tiêu, vẽ đường baseline và slot nền.
+  - Hiển thị nhãn thứ trong tuần (`T2` - `CN`) dưới đáy mỗi cột bằng `TextPainter`.
+- Nâng cấp và hoàn thiện `DashboardScreen` (`lib/screens/dashboard_screen.dart`):
+  - Chuyển đổi thành `StatefulWidget`, tích hợp 3 luồng dữ liệu từ `DatabaseService` (`getAllTransactions`, `getTransactionsByWeek`, `getExpensesByCategory`).
+  - Bọc cả 2 biểu đồ trong `TweenAnimationBuilder` tạo hiệu ứng animation "trải ra" (sweep/grow) mượt mà khi mở trang.
+  - Hiển thị danh sách giao dịch gần đây (`ListView.builder`, `shrinkWrap: true`), định dạng tiền tệ và ngày tháng, hiển thị trạng thái "Chưa có giao dịch nào" khi rỗng.
+  - Hỗ trợ vuốt xuống để làm mới dữ liệu (`RefreshIndicator`) và tự động cập nhật khi quay lại từ Camera Scanner.
+- Cập nhật bộ kiểm thử `test/widget_test.dart`:
+  - Thêm test case cho Dashboard render thẻ biểu đồ, trạng thái rỗng, trạng thái có dữ liệu, và kiểm thử render Canvas thuần của `PieChartPainter` & `BarChartPainter`.
+  - Bộ test đạt 21/21 passed (100%).
+### File ảnh hưởng
+- `lib/widgets/.gitkeep` (xóa)
+- `lib/widgets/pie_chart_painter.dart` (tạo mới)
+- `lib/widgets/bar_chart_painter.dart` (tạo mới)
+- `lib/screens/dashboard_screen.dart` (chỉnh sửa hoàn thiện)
+- `lib/services/database_service.dart` (bổ sung hỗ trợ mock test an toàn)
+- `test/widget_test.dart` (cập nhật test)
+- `CHANGELOG.md` (cập nhật)
+- `DEV_HISTORY.md` (cập nhật)
+### Ghi chú
+- 100% biểu đồ được vẽ bằng CustomPainter trên Canvas nguyên bản của Flutter, không phụ thuộc thư viện đồ họa thứ 3. Hoàn tất toàn bộ 6/6 bước của Mini-Project!
+
 ## [Bước 5] Thiết lập cơ sở dữ liệu Isar - 2026-10-06 20:10
 ### Đã thực hiện
 - Xóa file giữ chỗ `lib/models/.gitkeep`.

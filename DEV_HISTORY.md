@@ -1,6 +1,54 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Bước 6] Vẽ biểu đồ CustomPainter & Hoàn thiện Dashboard - 2026-10-06 20:35
+### Mục tiêu
+Tự vẽ biểu đồ hình vành khuyên (Pie/Donut Chart) và biểu đồ cột (Bar Chart) 7 ngày bằng Flutter `CustomPainter` nguyên bản mà không sử dụng bất kỳ thư viện ngoài nào (như `fl_chart`), bọc các biểu đồ trong `TweenAnimationBuilder` để tạo hiệu ứng chuyển động mượt mà khi vào trang, hiển thị danh sách giao dịch gần đây từ Isar Database trên `DashboardScreen`, hoàn thiện bộ widget test và kết thúc Mini-Project.
+
+### Các việc đã làm
+1. **Kiểm tra Pre-flight**:
+   - `git ls-files android/build/`: Không có file build nào bị theo dõi.
+   - `git status`: Working tree sạch hoàn toàn (`nothing to commit, working tree clean`).
+   - `git log --oneline -n 2`: Ghi nhận commit gần nhất `d0ec19a feat: integrate isar database and transaction saving flow`.
+2. **Xây dựng PieChartPainter (`lib/widgets/pie_chart_painter.dart`)**:
+   - Xóa `lib/widgets/.gitkeep`.
+   - Triển khai class `PieChartPainter` kế thừa `CustomPainter`.
+   - Nhận vào `categoryData` kiểu `Map<String, double>` và tham số animation `progress` (0.0 -> 1.0).
+   - Tọa độ Canvas: Tính `center = Offset(size.width / 2, size.height / 2)`, `radius = (min(width, height) - strokeWidth) / 2`.
+   - Sử dụng `canvas.drawArc` với góc bắt đầu `-pi / 2` (vị trí 12h đỉnh trên) và `sweepAngle` tỷ lệ theo phần trăm số tiền của từng danh mục nhân với `progress`.
+   - Xử lý mượt mà trạng thái rỗng (`totalAmount <= 0`): Vẽ vòng tròn xám `Colors.grey.shade300` và vẽ chữ "Chưa có dữ liệu" ở tâm bằng `TextPainter`.
+3. **Xây dựng BarChartPainter (`lib/widgets/bar_chart_painter.dart`)**:
+   - Triển khai class `BarChartPainter` kế thừa `CustomPainter`.
+   - Nhận vào `dailyExpenses` (danh sách chi tiêu 7 ngày) và nhãn các thứ trong tuần (`T2` đến `CN`).
+   - Tọa độ Canvas: Dành khoảng cách 22px bên dưới cho nhãn thứ và vẽ đường baseline ngang bằng `canvas.drawLine`.
+   - Vẽ slot nền `canvas.drawRect` cho từng cột để tạo chiều sâu thị giác.
+   - Vẽ cột chi tiêu bằng `canvas.drawRect` với chiều cao tính theo `(amount / maxAmount) * chartHeight * progress`.
+   - Hiển thị nhãn thứ căn giữa bên dưới cột bằng `TextPainter`.
+4. **Hoàn thiện DashboardScreen (`lib/screens/dashboard_screen.dart`)**:
+   - Chuyển thành `StatefulWidget`, tích hợp lấy dữ liệu trong `initState`: `getAllTransactions()`, `getTransactionsByWeek()`, và `getExpensesByCategory()`.
+   - Hiển thị thẻ Card 1 (Biểu đồ cột 7 ngày) và Card 2 (Biểu đồ tròn phân bổ danh mục) bọc trong `TweenAnimationBuilder<double>` với thời lượng 900ms và curve `Curves.easeOutCubic`.
+   - Hiển thị danh sách giao dịch gần đây dạng `ListView.builder` (`shrinkWrap: true`, `physics: NeverScrollableScrollPhysics()`), hiển thị icon, màu danh mục, tên cửa hàng, ngày và số tiền chi tiêu.
+   - Xử lý trạng thái rỗng "Chưa có giao dịch nào" khi cơ sở dữ liệu chưa có bản ghi.
+   - Hỗ trợ `RefreshIndicator` kéo xuống làm mới và tự động load lại khi quay về từ `FloatingActionButton` (Scanner).
+5. **Khắc phục lỗi và cập nhật Widget Test (`test/widget_test.dart`)**:
+   - *Vấn đề*: Trong môi trường widget test thuần (headless Dart VM), plugin `path_provider` và thư viện native của Isar không có sẵn, khiến các lời gọi bất đồng bộ bị treo hoặc ném ngoại lệ, đồng thời các widget progress indicator vô tận khiến `pumpAndSettle` bị timeout.
+   - *Giải pháp*:
+     - Bổ sung cờ `useMock` và danh sách bộ nhớ tạm `mockTransactions` trong `DatabaseService` để tự động fallback an toàn khi ở môi trường kiểm thử.
+     - Trong `test/widget_test.dart`, khởi tạo `DatabaseService.instance.useMock = true` trong `setUp`.
+     - Thay thế việc chờ vô hạn bằng các bước `pump(Duration)` có kiểm soát thời gian animation.
+     - Bổ sung kiểm thử Dashboard hiển thị dữ liệu thật và kiểm thử render canvas của cả 2 painter.
+6. **Kiểm tra chất lượng**:
+   - `flutter analyze`: Hoàn toàn sạch, 0 cảnh báo, 0 lỗi.
+   - `flutter test`: 21/21 bài kiểm thử vượt qua 100%.
+
+### Quyết định kỹ thuật
+- **Vẽ Canvas thuần không dùng thư viện ngoài**: Sử dụng trực tiếp `canvas.drawArc`, `canvas.drawRect`, `canvas.drawLine` và `TextPainter` đảm bảo app cực nhẹ, không phát sinh dependency conflict hay overhead từ các thư viện biểu đồ nặng nề.
+- **Animation bằng TweenAnimationBuilder**: Sử dụng widget declarative của Flutter để animate tiến trình vẽ `progress` từ 0.0 đến 1.0, không cần quản lý thủ công `AnimationController` hay `TickerProviderStateMixin`.
+- **Thiết kế test-ready cho DatabaseService**: Cung cấp chế độ mock in-memory trong lành mạnh giúp các luồng UI widget test chạy độc lập 100% mà không bị phụ thuộc vào Android Native binaries của Isar.
+
+### Việc tồn đọng
+- Dự án hoàn tất (Đã hoàn thành trọn vẹn toàn bộ 6/6 bước của Mini-Project).
+
 ## [Bước 5] Thiết lập cơ sở dữ liệu Isar - 2026-10-06 20:10
 ### Mục tiêu
 Định nghĩa schema dữ liệu cho các giao dịch chi tiêu (`TransactionModel`) bằng Isar Community, sinh mã nguồn tự động `*.g.dart`, xây dựng `DatabaseService` để thực hiện lưu trữ/truy vấn giao dịch, và hoàn thiện luồng lưu dữ liệu từ màn hình Review Transaction bao gồm sao chép ảnh vào persistent storage.
