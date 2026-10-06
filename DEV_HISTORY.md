@@ -1,6 +1,72 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Bước 3] Xử lý Camera và Kính ngắm - 2026-10-06 19:48
+### Mục tiêu
+Tích hợp phần cứng Camera vào ứng dụng, hiển thị luồng CameraPreview trực tiếp kèm kính ngắm (Viewfinder overlay) hỗ trợ căn chỉnh hóa đơn, các nút điều khiển đèn Flash và nút chụp ảnh, đồng thời thực thi luồng chuyển ảnh sang màn hình Review Transaction.
+
+### Các việc đã làm
+1. **Kiểm tra Pre-flight**:
+   - `git ls-files android/build/`: Không có file build nào bị theo dõi.
+   - `git status`: Working tree hoàn toàn sạch sẽ (`nothing to commit, working tree clean`).
+   - `git log --oneline -n 2`: Ghi nhận commit gần nhất `91e00fd feat: add UI skeleton, named routes and update widget test`.
+2. **Khai báo quyền Camera trên Android**:
+   - Chỉnh sửa `android/app/src/main/AndroidManifest.xml`: Thêm `<uses-permission android:name="android.permission.CAMERA"/>` ngay phía ngoài thẻ `<application>`.
+3. **Phát triển Camera & Viewfinder trong `lib/screens/scanner_screen.dart`**:
+   - Chuyển đổi `ScannerScreen` thành `StatefulWidget`.
+   - Trong `initState`, gọi bất đồng bộ `availableCameras()` để lọc camera sau (`CameraLensDirection.back`), khởi tạo `CameraController` với `ResolutionPreset.high`, `enableAudio: false`.
+   - Quản lý vòng đời chặt chẽ qua `dispose()` để giải phóng tài nguyên phần cứng camera.
+   - Xây dựng layout dạng `Stack`:
+     - Tầng dưới: `CameraPreview` (hiển thị `CircularProgressIndicator` khi đang khởi tạo hoặc thông báo thân thiện khi không có camera/lỗi).
+     - Tầng giữa: `CustomPaint` với `_ViewfinderPainter` vẽ khung kính ngắm chữ nhật bo tròn ở trung tâm, viền màu chủ đạo nổi bật kèm 4 góc nhấn trắng và vùng mờ tối `withValues(alpha: 0.55)` bao quanh.
+     - Tầng trên: Nút toggle đèn Flash (`setFlashMode`: torch/off) và nút chụp ảnh to 76x76 ở giữa cạnh dưới.
+   - Xây dựng hàm `_takePicture()`: gọi `_controller!.takePicture()`, lấy `file.path`, kiểm tra `mounted` và điều hướng sang `ReviewTransactionScreen.routeName` mang theo argument `file.path`.
+4. **Cập nhật Widget Test (`test/widget_test.dart`)**:
+   - Khắc phục hiện tượng timeout trong Test 2 bằng cách thay thế `pumpAndSettle()` bằng `pump(const Duration(milliseconds: 500))` để không bị treo bởi vòng lặp animation vô hạn của `CircularProgressIndicator`.
+5. **Kiểm tra chất lượng và build APK**:
+   - Chạy `flutter test`: 3/3 tests passed.
+   - Chạy `flutter analyze`: 0 issues found (đã thay thế các API cũ `withOpacity` sang `withValues` chuẩn Flutter 3.27+).
+   - Chạy `flutter build apk --debug`: Biên dịch thành công trong 61.0s.
+
+### Sự cố & cách sửa
+| # | Lỗi/vấn đề (trích log ngắn) | Nguyên nhân | Cách sửa | Kết quả |
+|---|---|---|---|---|
+| 1 | `pumpAndSettle timed out` tại Test 2 trong `test/widget_test.dart` | Khi điều hướng sang `ScannerScreen`, trạng thái khởi tạo hiển thị `CircularProgressIndicator` có animation lặp vô hạn khiến `pumpAndSettle()` chờ frame ổn định vô tận | Đổi từ `await tester.pumpAndSettle()` sang `await tester.pump()` và `await tester.pump(const Duration(milliseconds: 500))` vừa đủ để hoàn tất hiệu ứng chuyển trang | Cả 3/3 widget tests pass 100% |
+| 2 | `'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss` trong `scanner_screen.dart` | Flutter 3.27+ khuyến nghị deprecate `Color.withOpacity()` để tránh sai số chính xác màu sắc | Thay thế bằng cú pháp chuẩn mới `Color.withValues(alpha: ...)` | `flutter analyze` đạt 0 issues |
+
+### Quyết định kỹ thuật
+- **Độ phân giải Camera (`ResolutionPreset.high`)**:
+  - Đảm bảo độ sắc nét cao (thường là 1080p hoặc 720p tùy thiết bị) để mô hình OCR (Google ML Kit) ở Bước 4 nhận diện ký tự chữ số nhỏ trên hóa đơn chính xác nhất, đồng thời không gây quá tải bộ nhớ như `max`.
+- **Tắt âm thanh (`enableAudio: false`)**:
+  - Ứng dụng chỉ phục vụ chụp ảnh tĩnh (không quay video), tắt audio giúp ứng dụng không yêu cầu thêm quyền ghi âm (`RECORD_AUDIO`) không cần thiết trong Manifest.
+- **Kỹ thuật vẽ Viewfinder bằng `CustomPainter`**:
+  - Sử dụng `PathFillType.evenOdd` để đục lỗ trong suốt chính xác hình chữ nhật bo góc giữa màn hình, giúp khung ngắm mượt mà, độc lập độ phân giải và không làm gián đoạn luồng hiển thị của `CameraPreview` phía dưới.
+- **Xử lý an toàn Camera trong môi trường test/thiết bị không có camera**:
+  - Bọc khối `try-catch` trong hàm `_initializeCamera()`, hiển thị thông báo lỗi thân thiện thay vì làm ứng dụng crash khi chạy trên máy ảo hoặc thiết bị không hỗ trợ.
+
+### File tạo / sửa / xóa
+- Tạo: Không có file mới ngoài yêu cầu.
+- Sửa:
+  - `android/app/src/main/AndroidManifest.xml`
+  - `lib/screens/scanner_screen.dart`
+  - `test/widget_test.dart`
+  - `CHANGELOG.md`
+  - `DEV_HISTORY.md`
+- Xóa: Không có file bị xóa.
+
+### Kết quả kiểm tra
+- `flutter analyze`: Không có cảnh báo hay lỗi nào (No issues found!).
+- `flutter test`: 3/3 test cases passed.
+- `flutter build apk --debug`: Thành công 100% (`√ Built build\app\outputs\flutter-apk\app-debug.apk` trong 61.0s).
+
+### Việc tồn đọng cho Bước 4 (Tích hợp OCR Regex)
+- Đọc đường dẫn ảnh từ `ReviewTransactionScreen`.
+- Tích hợp `google_mlkit_text_recognition` để quét toàn bộ text thô (raw text) từ ảnh hóa đơn.
+- Xây dựng bộ quy tắc Regex bóc tách: Tổng tiền (Total amount), Ngày tháng (Transaction date), Tên cửa hàng (Merchant/Store name).
+- Hiển thị kết quả bóc tách lên giao diện `ReviewTransactionScreen` cho phép người dùng xem và chỉnh sửa trước khi lưu.
+
+---
+
 ## [Bước 2] Dựng bộ khung UI và Routing - 2026-10-06 19:30
 ### Mục tiêu
 Xây dựng khung giao diện cơ bản (UI skeleton) cho 3 màn hình cốt lõi (Dashboard, Scanner, Review Transaction), thiết lập hệ thống điều hướng đặt tên (named routes) kết hợp route động, và cập nhật bộ kiểm thử tự động (widget test).

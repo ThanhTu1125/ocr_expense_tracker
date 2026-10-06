@@ -16,7 +16,8 @@ void main() {
     await tester.pumpWidget(const MyApp());
 
     await tester.tap(find.byType(FloatingActionButton));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('Scanner'), findsOneWidget);
   });

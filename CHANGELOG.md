@@ -2,6 +2,27 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Bước 3] Xử lý Camera và Kính ngắm - 2026-10-06 19:48
+### Đã thực hiện
+- Khai báo quyền Camera trong `android/app/src/main/AndroidManifest.xml`: `<uses-permission android:name="android.permission.CAMERA"/>`.
+- Nâng cấp `ScannerScreen` thành `StatefulWidget` tích hợp logic Camera:
+  - Tự động phát hiện camera sau (`availableCameras()` + `CameraLensDirection.back`).
+  - Khởi tạo `CameraController` với `ResolutionPreset.high`, `enableAudio: false`, và quản lý vòng đời `dispose()`.
+  - Dựng giao diện phân lớp bằng `Stack`:
+    - Lớp nền: `CameraPreview` (kèm loading indicator khi controller đang khởi tạo hoặc thông báo lỗi nếu không tìm thấy camera).
+    - Lớp giữa: Kính ngắm Viewfinder (`CustomPainter`) dạng hình chữ nhật bo góc với viền màu nổi bật, góc nhấn trắng và vùng mờ xung quanh hướng dẫn căn chỉnh hóa đơn.
+    - Lớp điều khiển: Nút bật/tắt đèn Flash (`setFlashMode`: torch/off) và nút chụp ảnh to ở giữa cạnh dưới.
+  - Xử lý hành động chụp ảnh (`takePicture()`): lưu file ảnh và điều hướng sang `ReviewTransactionScreen` mang theo tham số đường dẫn ảnh `file.path`.
+- Cập nhật `test/widget_test.dart`: tối ưu kiểm thử điều hướng sang ScannerScreen bằng `tester.pump(duration)` tránh timeout do hoạt họa loading vô hạn của `CircularProgressIndicator`.
+### File ảnh hưởng
+- `android/app/src/main/AndroidManifest.xml` (chỉnh sửa)
+- `lib/screens/scanner_screen.dart` (chỉnh sửa)
+- `test/widget_test.dart` (chỉnh sửa)
+- `CHANGELOG.md` (cập nhật)
+- `DEV_HISTORY.md` (cập nhật)
+### Ghi chú
+- Pipeline chụp ảnh và chuyển tiếp đường dẫn file ảnh sang ReviewTransactionScreen đã sẵn sàng để tích hợp Google ML Kit OCR ở Bước 4.
+
 ## [Bước 2] Dựng bộ khung UI và Routing - 2026-10-06 19:30
 ### Đã thực hiện
 - Tạo các màn hình giao diện dạng StatelessWidget với routeName tĩnh:
