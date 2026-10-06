@@ -7,15 +7,14 @@ class RegexHelper {
     final lines = text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     if (lines.isEmpty) return null;
 
-    // Các từ khóa chỉ tổng tiền
+    // Các từ khóa ưu tiên chỉ tổng tiền (loại trừ tuyệt đối: tiền mặt, cash, tiền thối)
     final totalKeywords = RegExp(
-      r'(t[oổ]ng\s*c[oộ]ng|t[oổ]ng\s*ti[eề]n|thanh\s*to[aá]n|ti[eề]n\s*m[aặ]t|ph[aả]i\s*tr[aả]|th[aà]nh\s*ti[eề]n|total|grand\s*total|amount|sum)',
+      r'(t[oổ]ng\s*c[oộ]ng|t[oổ]ng\s*ti[eề]n|th[aà]nh\s*ti[eề]n|t[oổ]ng\s*thanh\s*to[aá]n|total|amount)',
       caseSensitive: false,
     );
 
-    // 1. Ưu tiên tìm trên các dòng có từ khóa tổng tiền
-    for (int i = lines.length - 1; i >= 0; i--) {
-      final line = lines[i];
+    // 1. Duyệt từng dòng từ trên xuống dưới, ưu tiên từ khóa tổng tiền và return ngay lập tức
+    for (final line in lines) {
       if (totalKeywords.hasMatch(line)) {
         final amount = _findLargestAmountInLine(line);
         if (amount != null && amount > 0) {

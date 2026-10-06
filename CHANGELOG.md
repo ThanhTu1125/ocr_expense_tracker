@@ -2,6 +2,23 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Hotfix] Tối ưu Regex bóc tách số tiền - 2026-10-06 22:42
+### Đã thực hiện
+- Tối ưu thuật toán `RegexHelper.extractAmount` trong `lib/utils/regex_helper.dart`:
+  - Cập nhật danh sách từ khóa ưu tiên, CHỈ giữ lại: "tổng cộng", "tổng tiền", "thành tiền", "tổng thanh toán", "total", "amount".
+  - Loại bỏ hoàn toàn các từ khóa dễ gây nhầm lẫn như "tiền mặt", "cash", "tiền thối".
+  - Duyệt tuần tự từ trên xuống dưới: khi phát hiện dòng chứa từ khóa ưu tiên, bóc tách số tiền trên dòng đó và trả về kết quả ngay lập tức (early return/break sớm), tránh bị ghi đè bởi số tiền khách đưa hoặc tiền thối ở phía dưới.
+  - Cơ chế fallback (lấy số lớn nhất ở nửa dưới hóa đơn) chỉ kích hoạt khi không tìm thấy bất kỳ dòng nào chứa từ khóa tổng tiền.
+- Bổ sung Unit Test trong `test/regex_helper_test.dart`:
+  - Thêm test case mô phỏng hóa đơn có cả "TỔNG CỘNG: 35.000 VNĐ", "Tiền mặt: 50.000" và "Tiền thối: 15.000", xác nhận thuật toán bóc tách chính xác 35.000 đ.
+### File ảnh hưởng
+- `lib/utils/regex_helper.dart` (chỉnh sửa logic)
+- `test/regex_helper_test.dart` (thêm unit test)
+- `CHANGELOG.md` (cập nhật)
+- `DEV_HISTORY.md` (cập nhật)
+### Ghi chú
+- 22/22 bài kiểm thử vượt qua 100%, khắc phục triệt để lỗi nhận diện nhầm số tiền khách đưa.
+
 ## [Bước 6] Vẽ biểu đồ CustomPainter & Hoàn thiện Dashboard - 2026-10-06 20:35
 ### Đã thực hiện
 - Xóa file giữ chỗ `lib/widgets/.gitkeep`.

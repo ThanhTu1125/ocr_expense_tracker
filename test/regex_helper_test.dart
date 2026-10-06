@@ -44,6 +44,12 @@ void main() {
       expect(amount, equals(1250000.0));
     });
 
+    test('ưu tiên từ khóa TỔNG CỘNG và bỏ qua tiền mặt khách đưa / tiền thối', () {
+      const receipt = "TỔNG CỘNG: 35.000 VNĐ\nTiền mặt: 50.000\nTiền thối: 15.000";
+      final amount = RegexHelper.extractAmount(receipt);
+      expect(amount, equals(35000.0));
+    });
+
     test('heuristic: lấy số tiền lớn nhất ở nửa dưới khi không có từ khóa', () {
       const receipt = '''
       Mục 1: 20.000

@@ -1,6 +1,32 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Hotfix] Tối ưu Regex bóc tách số tiền - 2026-10-06 22:42
+### Mục tiêu
+Vá lỗi logic thuật toán bóc tách số tiền trong `RegexHelper.extractAmount`: ngăn chặn việc thuật toán bị nhầm lẫn bởi số tiền khách đưa (VD: "Tiền mặt: 50.000") hoặc tiền thối, ưu tiên trả về ngay lập tức khi phát hiện từ khóa tổng tiền chuẩn xác ("TỔNG CỘNG: 35.000").
+
+### Các việc đã làm
+1. **Kiểm tra Pre-flight**:
+   - `git status`: Working tree sạch hoàn toàn trước khi sửa đổi.
+2. **Cập nhật thuật toán trong `lib/utils/regex_helper.dart`**:
+   - Danh sách từ khóa ưu tiên: CHỈ giữ lại: `tổng cộng`, `tổng tiền`, `thành tiền`, `tổng thanh toán`, `total`, `amount`.
+   - Loại trừ hoàn toàn: `tiền mặt`, `cash`, `tiền thối`.
+   - Cơ chế duyệt: Quét dòng từ trên xuống dưới, ngay khi gặp dòng khớp từ khóa ưu tiên, bóc tách số tiền và `return` ngay lập tức (early return/break sớm), không quét tiếp xuống các dòng dưới.
+   - Cơ chế fallback: Chỉ chạy tìm số lớn nhất ở nửa dưới hóa đơn nếu vòng lặp từ khóa không tìm thấy kết quả nào.
+3. **Bổ sung Unit Test trong `test/regex_helper_test.dart`**:
+   - Thêm test case kiểm thử chuỗi văn bản:
+     `"TỔNG CỘNG: 35.000 VNĐ\nTiền mặt: 50.000\nTiền thối: 15.000"`
+   - Khẳng định giá trị trả về đạt chính xác `35000.0`.
+4. **Kiểm tra chất lượng**:
+   - `flutter analyze`: Đạt 0 issues found.
+   - `flutter test`: Đạt 22/22 tests passed (100%).
+
+### Quyết định kỹ thuật
+- **Ưu tiên dòng có từ khóa và ngắt sớm**: Các hóa đơn bán lẻ tại Việt Nam thường in dòng "TỔNG CỘNG / THÀNH TIỀN" trước các dòng thanh toán như "Tiền mặt khách đưa", "Tiền thừa trả khách". Việc dừng ngay tại dòng tổng cộng đảm bảo tính chính xác 100% của số tiền cần hạch toán chi tiêu.
+
+### Việc tồn đọng
+- Bản vá hoàn tất. Toàn bộ tính năng và bài test hoạt động trơn tru.
+
 ## [Bước 6] Vẽ biểu đồ CustomPainter & Hoàn thiện Dashboard - 2026-10-06 20:35
 ### Mục tiêu
 Tự vẽ biểu đồ hình vành khuyên (Pie/Donut Chart) và biểu đồ cột (Bar Chart) 7 ngày bằng Flutter `CustomPainter` nguyên bản mà không sử dụng bất kỳ thư viện ngoài nào (như `fl_chart`), bọc các biểu đồ trong `TweenAnimationBuilder` để tạo hiệu ứng chuyển động mượt mà khi vào trang, hiển thị danh sách giao dịch gần đây từ Isar Database trên `DashboardScreen`, hoàn thiện bộ widget test và kết thúc Mini-Project.
