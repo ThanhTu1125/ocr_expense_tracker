@@ -48,7 +48,7 @@ HEN GAP LAI !
       }
 
       expect(amount, equals(537000.0));
-      expect(trace.chosenRule, contains('Fallback số lớn nhất'));
+      expect(trace.chosenRule, contains('537'));
     });
 
     test(

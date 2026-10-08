@@ -1,4 +1,32 @@
+import 'package:intl/intl.dart';
 import 'regex_helper.dart';
+
+/// Chứa thông tin chi tiết của TỪNG DÒNG văn bản phục vụ chẩn đoán đầy đủ
+class LineDebugInfo {
+  final int lineNumber;
+  final String originalText;
+  final String normalizedText;
+  final bool isGarbage;
+  final String? garbageReason;
+  final List<double> parsedAmounts;
+  final bool isExcluded;
+  final String? excludedReason;
+  final String status; // 'ĐƯỢC CHỌN' | 'BỊ LOẠI' | 'KHÔNG CÓ TIỀN'
+  final String decisionReason;
+
+  LineDebugInfo({
+    required this.lineNumber,
+    required this.originalText,
+    required this.normalizedText,
+    required this.isGarbage,
+    this.garbageReason,
+    required this.parsedAmounts,
+    required this.isExcluded,
+    this.excludedReason,
+    required this.status,
+    required this.decisionReason,
+  });
+}
 
 /// Đại diện cho một ứng viên số tiền được phân tích
 class AmountCandidateTrace {
@@ -20,12 +48,14 @@ class AmountCandidateTrace {
 /// Chứa toàn bộ thông tin trace giải thích thuật toán bóc tách số tiền
 class AmountDebugTrace {
   final String rawText;
+  final List<LineDebugInfo> allLines;
   final List<AmountCandidateTrace> candidates;
   final String chosenRule;
   final double? finalAmount;
 
   AmountDebugTrace({
     required this.rawText,
+    required this.allLines,
     required this.candidates,
     required this.chosenRule,
     this.finalAmount,
@@ -61,13 +91,12 @@ class AmountDebugTracer {
     'khuyen mai',
     'tien khach dua',
     'khach dua',
-    'tien mat',
     'tien thoi',
     'thoi lai',
     'so luong',
   ];
 
-  static String _normalize(String text) {
+  static String normalize(String text) {
     var result = text.toLowerCase().trim();
     result = result.replaceAll('0', 'o').replaceAll('q', 'o');
     const withAccents =
@@ -80,25 +109,41 @@ class AmountDebugTracer {
     return result.replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  static bool _isExcluded(String norm) {
+  static ({bool isExcluded, String? reason}) checkExcluded(String norm, {bool allowCash = false}) {
     for (final kw in _excludedKeywords) {
-      if (norm.contains(kw)) return true;
+      if (norm.contains(kw)) {
+        return (isExcluded: true, reason: 'Chứa từ khóa loại trừ: "$kw"');
+      }
     }
-    if (RegExp(r'\bv\.?a\.?t\b').hasMatch(norm)) return true;
-    if (RegExp(r'\bthue\b').hasMatch(norm)) return true;
-    if (RegExp(r'\bcash\b').hasMatch(norm)) return true;
-    if (RegExp(r'\bchange\b').hasMatch(norm)) return true;
-    return false;
+    if (!allowCash && norm.contains('tien mat')) {
+      return (isExcluded: true, reason: 'Chứa từ khóa loại trừ "tien mat"');
+    }
+    if (RegExp(r'\bv\.?a\.?t\b').hasMatch(norm)) {
+      return (isExcluded: true, reason: 'Chứa từ khóa loại trừ VAT');
+    }
+    if (RegExp(r'\bthue\b').hasMatch(norm)) {
+      return (isExcluded: true, reason: 'Chứa từ khóa loại trừ "thue"');
+    }
+    if (!allowCash && RegExp(r'\bcash\b').hasMatch(norm)) {
+      return (isExcluded: true, reason: 'Chứa từ khóa loại trừ "cash"');
+    }
+    if (RegExp(r'\bchange\b').hasMatch(norm)) {
+      return (isExcluded: true, reason: 'Chứa từ khóa loại trừ "change"');
+    }
+    return (isExcluded: false, reason: null);
   }
 
-  static bool _isGarbageLine(String line) {
+  static ({bool isGarbage, String? reason}) checkGarbage(String line) {
     final lower = line.toLowerCase().trim();
-    if (lower.isEmpty) return true;
-    if (RegExp(r'(=|&|\?q=|http|www|\.com)', caseSensitive: false)
-        .hasMatch(line)) {
-      return true;
+    if (lower.isEmpty) {
+      return (isGarbage: true, reason: 'Dòng rỗng');
     }
-    if (RegExp(r'^[\s*\-=_~]{3,}$').hasMatch(line)) return true;
+    if (RegExp(r'(=|&|\?q=|http|www|\.com)', caseSensitive: false).hasMatch(line)) {
+      return (isGarbage: true, reason: 'Chứa URL / liên kết web');
+    }
+    if (RegExp(r'^[\s*\-=_~]{3,}$').hasMatch(line)) {
+      return (isGarbage: true, reason: 'Dòng phân cách (***, ---)');
+    }
     if (RegExp(
       r'(^(dt|d/t|đ/t|tel|hotline|phone|dien\s*thoai|fax)\b)|'
       r'(\b(dt|d/t|đ/t|tel|hotline|phone|dien\s*thoai|fax)\s*[:.])|'
@@ -106,29 +151,28 @@ class AmountDebugTracer {
       r'(^(0\d{9,10}|\d{7,8})$)',
       caseSensitive: false,
     ).hasMatch(line)) {
-      return true;
+      return (isGarbage: true, reason: 'Số điện thoại / hotline');
     }
     if (RegExp(
       r'\b(mst|ma\s*so\s*thue|tax\s*code|so\s*hd|so\s*bill|so\s*phieu|inv\s*no|stk|tai\s*khoan)\b',
       caseSensitive: false,
     ).hasMatch(line)) {
-      return true;
+      return (isGarbage: true, reason: 'Mã số thuế / Số hóa đơn / STK');
     }
     if (RegExp(
       r'(\b(banso|ban\s*so|so\s*ban|table)\s*[:#]?\s*\d+)|'
       r'(\b(mc\s*#|pos\s*#|thu\s*ngan|cashier|nv\s*ban)\b)',
       caseSensitive: false,
     ).hasMatch(line)) {
-      return true;
+      return (isGarbage: true, reason: 'Bàn số / Mã ca POS / Thu ngân');
     }
     final dateRegex = RegExp(r'\b\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}\b');
     final timeRegex = RegExp(r'\b\d{1,2}:\d{2}(?::\d{2})?\b');
     if ((dateRegex.hasMatch(line) || timeRegex.hasMatch(line)) &&
-        !RegExp(r'\b(tong|total|tien|amount|vnd|đ|k)\b', caseSensitive: false)
-            .hasMatch(line)) {
-      return true;
+        !RegExp(r'\b(tong|total|tien|amount|vnd|đ|k)\b', caseSensitive: false).hasMatch(line)) {
+      return (isGarbage: true, reason: 'Ngày giờ không kèm đơn vị tiền');
     }
-    return false;
+    return (isGarbage: false, reason: null);
   }
 
   static bool _isColumnHeader(String normalized, String line) {
@@ -142,19 +186,21 @@ class AmountDebugTracer {
     return hasColumnTerms || hasNoAmount;
   }
 
-  /// Phân tích vết chi tiết chuỗi OCR
-  static AmountDebugTrace trace(String text) {
-    final finalAmount = RegexHelper.extractAmount(text);
-    final rawLines = text.split('\n');
-    final cleanLines = text
-        .split('\n')
+  /// Phân tích vết chi tiết chuỗi OCR cho TẤT CẢ các dòng
+  static AmountDebugTrace trace(String text, {List<String>? rows}) {
+    final finalAmount = RegexHelper.extractAmount(text, rows: rows);
+    final rawLines = (rows != null && rows.isNotEmpty)
+        ? rows
+        : text.split('\n');
+    final cleanLines = rawLines
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty)
         .toList();
 
-    if (text.trim().isEmpty || cleanLines.isEmpty) {
+    if (rawLines.isEmpty || cleanLines.isEmpty) {
       return AmountDebugTrace(
         rawText: text,
+        allLines: [],
         candidates: [],
         chosenRule: 'Không có dữ liệu văn bản',
         finalAmount: null,
@@ -168,18 +214,18 @@ class AmountDebugTracer {
 
     for (int i = 0; i < cleanLines.length; i++) {
       final line = cleanLines[i];
-      if (_isGarbageLine(line)) continue;
-      final norm = _normalize(line);
-      if (_isExcluded(norm)) continue;
+      if (checkGarbage(line).isGarbage) continue;
+      final norm = normalize(line);
+      if (checkExcluded(norm, allowCash: false).isExcluded) continue;
 
       final matchedStrong =
           _strongKeywords.where((kw) => norm.contains(kw)).toList();
       if (matchedStrong.isNotEmpty) {
         var lineAmt = RegexHelper.extractAmount(line);
         if (lineAmt == null || lineAmt <= 0) {
-          if (i + 1 < cleanLines.length && !_isGarbageLine(cleanLines[i + 1])) {
-            final nextNorm = _normalize(cleanLines[i + 1]);
-            if (!_isExcluded(nextNorm)) {
+          if (i + 1 < cleanLines.length && !checkGarbage(cleanLines[i + 1]).isGarbage) {
+            final nextNorm = normalize(cleanLines[i + 1]);
+            if (!checkExcluded(nextNorm, allowCash: false).isExcluded) {
               lineAmt = RegexHelper.extractAmount(cleanLines[i + 1]);
             }
           }
@@ -192,7 +238,32 @@ class AmountDebugTracer {
       }
     }
 
-    // 2. Quét từ khóa YẾU
+    // 2. BƯỚC 4: Nếu KHÔNG có từ khóa mạnh, kiểm tra dòng tiền mặt
+    double? lastCashAmount;
+    int? lastCashLineIdx;
+    for (int i = 0; i < cleanLines.length; i++) {
+      final line = cleanLines[i];
+      if (checkGarbage(line).isGarbage) continue;
+      final norm = normalize(line);
+      final hasCash = norm.contains('tien mat') || RegExp(r'\bcash\b').hasMatch(norm);
+      if (hasCash) {
+        var lineAmt = RegexHelper.extractAmount(line);
+        if (lineAmt == null || lineAmt <= 0) {
+          if (i + 1 < cleanLines.length && !checkGarbage(cleanLines[i + 1]).isGarbage) {
+            final nextNorm = normalize(cleanLines[i + 1]);
+            if (!checkExcluded(nextNorm, allowCash: false).isExcluded) {
+              lineAmt = RegexHelper.extractAmount(cleanLines[i + 1]);
+            }
+          }
+        }
+        if (lineAmt != null && lineAmt > 0) {
+          lastCashAmount = lineAmt;
+          lastCashLineIdx = i;
+        }
+      }
+    }
+
+    // 3. Quét từ khóa YẾU
     double? lastWeakAmount;
     int? lastWeakLineIdx;
     String? lastWeakKeyword;
@@ -200,9 +271,9 @@ class AmountDebugTracer {
     if (lastStrongAmount == null) {
       for (int i = 0; i < cleanLines.length; i++) {
         final line = cleanLines[i];
-        if (_isGarbageLine(line)) continue;
-        final norm = _normalize(line);
-        if (_isExcluded(norm) || _isColumnHeader(norm, line)) continue;
+        if (checkGarbage(line).isGarbage) continue;
+        final norm = normalize(line);
+        if (checkExcluded(norm, allowCash: false).isExcluded || _isColumnHeader(norm, line)) continue;
 
         final matchedWeak =
             _weakKeywords.where((kw) => norm.contains(kw)).toList();
@@ -210,9 +281,9 @@ class AmountDebugTracer {
           var lineAmt = RegexHelper.extractAmount(line);
           if (lineAmt == null || lineAmt <= 0) {
             if (i + 1 < cleanLines.length &&
-                !_isGarbageLine(cleanLines[i + 1])) {
-              final nextNorm = _normalize(cleanLines[i + 1]);
-              if (!_isExcluded(nextNorm) &&
+                !checkGarbage(cleanLines[i + 1]).isGarbage) {
+              final nextNorm = normalize(cleanLines[i + 1]);
+              if (!checkExcluded(nextNorm, allowCash: false).isExcluded &&
                   !_isColumnHeader(nextNorm, cleanLines[i + 1])) {
                 lineAmt = RegexHelper.extractAmount(cleanLines[i + 1]);
               }
@@ -227,11 +298,11 @@ class AmountDebugTracer {
       }
     }
 
-    // 3. Fallback Heuristic
+    // 4. Thu thập toàn bộ ứng viên số tiền hợp lệ
     final fallbackList = <({int lineNum, String lineText, double val})>[];
     for (int i = 0; i < rawLines.length; i++) {
       final line = rawLines[i].trim();
-      if (line.isEmpty || _isGarbageLine(line)) continue;
+      if (line.isEmpty || checkGarbage(line).isGarbage) continue;
       final val = RegexHelper.extractAmount(line);
       if (val != null && val > 0) {
         fallbackList.add((lineNum: i + 1, lineText: line, val: val));
@@ -241,117 +312,152 @@ class AmountDebugTracer {
     String chosenRule = 'Không tìm thấy số tiền hợp lệ';
     int? chosenLineNum;
 
+    // BƯỚC 5: Kiểm tra chéo bằng tổng tập con (Subset Sum)
+    double? crossCheckTarget;
+
     if (lastStrongAmount != null) {
       chosenRule =
-          'Từ khóa mạnh: "$lastStrongKeyword" (${lastStrongAmount.toStringAsFixed(0)} đ)';
+          'Từ khóa mạnh: "$lastStrongKeyword" (${NumberFormat('#,###').format(lastStrongAmount)} đ)';
       chosenLineNum = (lastStrongLineIdx ?? 0) + 1;
-    } else if (lastWeakAmount != null) {
-      chosenRule =
-          'Từ khóa yếu: "$lastWeakKeyword" (${lastWeakAmount.toStringAsFixed(0)} đ)';
-      chosenLineNum = (lastWeakLineIdx ?? 0) + 1;
-    } else if (fallbackList.isNotEmpty) {
-      final sorted = List.of(fallbackList)
-        ..sort((a, b) => b.val.compareTo(a.val));
-      final max1 = sorted[0];
-
-      if (sorted.length >= 2) {
-        final max2 = sorted[1];
-        ({int lineNum, String lineText, double val})? matchedX;
-
-        if (max1.val > max2.val) {
-          for (int i = 2; i < sorted.length; i++) {
-            final x = sorted[i];
-            if ((max1.val - (max2.val + x.val)).abs() < 1.0) {
-              matchedX = x;
-              break;
-            }
+    } else {
+      // Thử kiểm tra chéo bằng tổng
+      if (fallbackList.isNotEmpty) {
+        final allVals = fallbackList.map((e) => e.val).toList()..sort((a, b) => b.compareTo(a));
+        for (final target in allVals.toSet()) {
+          final subset = RegexHelper.findSubsetSum(allVals, target);
+          if (subset != null) {
+            crossCheckTarget = target;
+            final matched = fallbackList.firstWhere((e) => (e.val - target).abs() < 1.0);
+            chosenRule =
+                'Khớp tổng các khoản: ${subset.map((e) => NumberFormat('#,###').format(e)).join(' + ')} = ${NumberFormat('#,###').format(target)} đ (dòng ${matched.lineNum})';
+            chosenLineNum = matched.lineNum;
+            break;
           }
         }
+      }
 
-        if (matchedX != null) {
+      if (crossCheckTarget == null) {
+        if (lastCashAmount != null) {
           chosenRule =
-              'Fallback Max1 = Max2 + X (Max1: ${max1.val.toStringAsFixed(0)} đ, '
-              'Max2: ${max2.val.toStringAsFixed(0)} đ, X: ${matchedX.val.toStringAsFixed(0)} đ -> Chọn Max2)';
-          chosenLineNum = max2.lineNum;
-        } else {
+              'Từ khóa dòng tiền mặt: "tiền mặt" (${NumberFormat('#,###').format(lastCashAmount)} đ)';
+          chosenLineNum = (lastCashLineIdx ?? 0) + 1;
+        } else if (lastWeakAmount != null) {
           chosenRule =
-              'Fallback số lớn nhất (Max1: ${max1.val.toStringAsFixed(0)} đ tại dòng ${max1.lineNum})';
-          chosenLineNum = max1.lineNum;
+              'Từ khóa yếu: "$lastWeakKeyword" (${NumberFormat('#,###').format(lastWeakAmount)} đ)';
+          chosenLineNum = (lastWeakLineIdx ?? 0) + 1;
+        } else if (fallbackList.isNotEmpty) {
+          final sorted = List.of(fallbackList)
+            ..sort((a, b) => b.val.compareTo(a.val));
+          final max1 = sorted[0];
+
+          if (sorted.length >= 2) {
+            final max2 = sorted[1];
+            ({int lineNum, String lineText, double val})? matchedX;
+
+            if (max1.val > max2.val) {
+              for (int i = 2; i < sorted.length; i++) {
+                final x = sorted[i];
+                if ((max1.val - (max2.val + x.val)).abs() < 1.0) {
+                  matchedX = x;
+                  break;
+                }
+              }
+            }
+
+            if (matchedX != null) {
+              chosenRule =
+                  'Fallback Max1 = Max2 + X (Max1: ${NumberFormat('#,###').format(max1.val)} đ, '
+                  'Max2: ${NumberFormat('#,###').format(max2.val)} đ, X: ${NumberFormat('#,###').format(matchedX.val)} đ -> Chọn Max2)';
+              chosenLineNum = max2.lineNum;
+            } else {
+              chosenRule =
+                  'Fallback số lớn nhất (Max1: ${NumberFormat('#,###').format(max1.val)} đ tại dòng ${max1.lineNum})';
+              chosenLineNum = max1.lineNum;
+            }
+          } else {
+            chosenRule =
+                'Fallback số duy nhất (${NumberFormat('#,###').format(max1.val)} đ tại dòng ${max1.lineNum})';
+            chosenLineNum = max1.lineNum;
+          }
         }
-      } else {
-        chosenRule =
-            'Fallback số duy nhất (${max1.val.toStringAsFixed(0)} đ tại dòng ${max1.lineNum})';
-        chosenLineNum = max1.lineNum;
       }
     }
 
-    // Xây dựng danh sách ứng viên chi tiết từng dòng
+    // Xây dựng danh sách chi tiết cho TẤT CẢ các dòng
+    final allLines = <LineDebugInfo>[];
     final candidates = <AmountCandidateTrace>[];
-    for (int i = 0; i < rawLines.length; i++) {
-      final line = rawLines[i].trim();
-      final lineNum = i + 1;
-      if (line.isEmpty) continue;
 
-      if (_isGarbageLine(line)) {
+    for (int i = 0; i < rawLines.length; i++) {
+      final lineNum = i + 1;
+      final original = rawLines[i];
+      final lineTrimmed = original.trim();
+      final norm = normalize(original);
+      final gCheck = checkGarbage(lineTrimmed);
+      final exCheck = checkExcluded(norm, allowCash: lastStrongAmount == null);
+
+      final amt = RegexHelper.extractAmount(lineTrimmed);
+      final parsedList = amt != null ? [amt] : <double>[];
+
+      String status = 'KHÔNG CÓ TIỀN';
+      String reason = '';
+
+      if (gCheck.isGarbage) {
+        status = 'BỊ LOẠI';
+        reason = 'Bị loại do là dòng rác: ${gCheck.reason}';
+      } else if (exCheck.isExcluded) {
+        status = 'BỊ LOẠI';
+        reason = 'Bị loại do từ khóa: ${exCheck.reason}';
+      } else if (parsedList.isEmpty) {
+        status = 'KHÔNG CÓ TIỀN';
+        reason = 'Không tìm thấy số tiền hợp lệ trên dòng này';
+      } else {
+        final isChosen = (finalAmount != null &&
+            (amt! - finalAmount).abs() < 0.01 &&
+            (chosenLineNum == null || chosenLineNum == lineNum));
+
+        if (isChosen) {
+          status = 'ĐƯỢC CHỌN';
+          reason = 'Được chọn theo quy tắc: $chosenRule';
+        } else if (crossCheckTarget != null && (amt! - crossCheckTarget).abs() < 1.0) {
+          status = 'ĐƯỢC CHỌN';
+          reason = 'Khớp tổng các khoản kiểm tra chéo';
+        } else if (lastStrongAmount != null) {
+          status = 'BỊ LOẠI';
+          reason = 'Ưu tiên từ khóa mạnh "$lastStrongKeyword" tại dòng khác';
+        } else if (lastCashAmount != null && (amt! - lastCashAmount).abs() > 1.0 && lastStrongAmount == null) {
+          status = 'BỊ LOẠI';
+          reason = 'Ưu tiên dòng tiền mặt tại dòng khác';
+        } else {
+          status = 'BỊ LOẠI';
+          reason = 'Bị loại do quy tắc chốt ưu tiên ứng viên khác';
+        }
+
         candidates.add(AmountCandidateTrace(
           lineNumber: lineNum,
-          lineText: line,
-          amount: null,
-          status: 'BỊ LOẠI',
-          reason: 'Dòng thông tin phụ / rác (ngày giờ, SĐT, header)',
+          lineText: lineTrimmed,
+          amount: amt,
+          status: isChosen ? 'ĐƯỢC CHỌN' : 'BỊ LOẠI',
+          reason: reason,
         ));
-        continue;
       }
 
-      final norm = _normalize(line);
-      final isEx = _isExcluded(norm);
-      final amt = RegexHelper.extractAmount(line);
-
-      if (amt == null || amt <= 0) {
-        if (isEx) {
-          candidates.add(AmountCandidateTrace(
-            lineNumber: lineNum,
-            lineText: line,
-            amount: null,
-            status: 'BỊ LOẠI',
-            reason: 'Dòng chứa từ khóa loại trừ (tiền mặt / tiền thối / vat)',
-          ));
-        }
-        continue;
-      }
-
-      final isChosen = (finalAmount != null &&
-          (amt - finalAmount).abs() < 0.01 &&
-          (chosenLineNum == null || chosenLineNum == lineNum));
-
-      String reason;
-      if (isChosen) {
-        reason = 'Được chọn theo quy tắc: $chosenRule';
-      } else if (isEx) {
-        reason =
-            'Bị loại do dòng chứa từ khóa loại trừ (tiền mặt, tiền thối, cash...)';
-      } else if (lastStrongAmount != null) {
-        reason =
-            'Bị loại do ưu tiên từ khóa mạnh "$lastStrongKeyword" tại dòng khác';
-      } else if (lastWeakAmount != null) {
-        reason =
-            'Bị loại do ưu tiên từ khóa yếu "$lastWeakKeyword" tại dòng khác';
-      } else {
-        reason =
-            'Bị loại do quy tắc Fallback Heuristic (nhỏ hơn số được chọn hoặc không thỏa Max1=Max2+X)';
-      }
-
-      candidates.add(AmountCandidateTrace(
+      allLines.add(LineDebugInfo(
         lineNumber: lineNum,
-        lineText: line,
-        amount: amt,
-        status: isChosen ? 'ĐƯỢC CHỌN' : 'BỊ LOẠI',
-        reason: reason,
+        originalText: original,
+        normalizedText: norm,
+        isGarbage: gCheck.isGarbage,
+        garbageReason: gCheck.reason,
+        parsedAmounts: parsedList,
+        isExcluded: exCheck.isExcluded,
+        excludedReason: exCheck.reason,
+        status: status,
+        decisionReason: reason,
       ));
     }
 
     return AmountDebugTrace(
       rawText: rawLines.join('\n'),
+      allLines: allLines,
       candidates: candidates,
       chosenRule: chosenRule,
       finalAmount: finalAmount,

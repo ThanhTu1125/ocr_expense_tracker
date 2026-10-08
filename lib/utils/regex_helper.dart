@@ -26,19 +26,19 @@ class RegexHelper {
     'khuyen mai',
     'tien khach dua',
     'khach dua',
-    'tien mat',
     'tien thoi',
     'thoi lai',
     'so luong',
   ];
 
-  static bool _isExcludedLine(String normalized) {
+  static bool _isExcludedLine(String normalized, {bool allowCash = false}) {
     for (final kw in _excludedKeywords) {
       if (normalized.contains(kw)) return true;
     }
+    if (!allowCash && normalized.contains('tien mat')) return true;
     if (RegExp(r'\bv\.?a\.?t\b').hasMatch(normalized)) return true;
     if (RegExp(r'\bthue\b').hasMatch(normalized)) return true;
-    if (RegExp(r'\bcash\b').hasMatch(normalized)) return true;
+    if (!allowCash && RegExp(r'\bcash\b').hasMatch(normalized)) return true;
     if (RegExp(r'\bchange\b').hasMatch(normalized)) return true;
     return false;
   }
@@ -87,12 +87,54 @@ class RegexHelper {
     return result;
   }
 
-  /// Bóc tách số tiền từ nội dung văn bản hóa đơn.
-  /// Hỗ trợ định dạng Việt Nam: 150.000, 150,000 VND, 150k, v.v.
-  static double? extractAmount(String text) {
-    if (text.trim().isEmpty) return null;
+  /// Chuẩn hóa gộp khoảng trắng xung quanh dấu phân cách hàng nghìn (ví dụ "42, 000" -> "42,000")
+  static String normalizeThousandSeparators(String text) {
+    return text.replaceAllMapped(
+      RegExp(r'(?<=\d)\s*([.,])\s*(?=\d{3}(?!\d))'),
+      (match) => match.group(1)!,
+    );
+  }
 
-    final lines = text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+  /// Kiểm tra chéo bằng tổng tập con (Subset Sum)
+  /// Trả về tập con các ứng viên có tổng bằng target (nếu có ít nhất 2 phần tử)
+  static List<double>? findSubsetSum(List<double> candidates, double target) {
+    final items = candidates
+        .where((x) => x > 0 && x < target - 0.5)
+        .toList();
+    if (items.length < 2) return null;
+
+    items.sort((a, b) => b.compareTo(a));
+    final limitedItems = items.take(25).toList();
+
+    List<double>? foundSubset;
+
+    void backtrack(int index, double currentSum, List<double> currentList) {
+      if (foundSubset != null) return;
+      if ((currentSum - target).abs() < 1.0 && currentList.length >= 2) {
+        foundSubset = List.of(currentList);
+        return;
+      }
+      if (currentSum > target + 0.5) return;
+
+      for (int i = index; i < limitedItems.length; i++) {
+        currentList.add(limitedItems[i]);
+        backtrack(i + 1, currentSum + limitedItems[i], currentList);
+        currentList.removeLast();
+        if (foundSubset != null) return;
+      }
+    }
+
+    backtrack(0, 0.0, []);
+    return foundSubset;
+  }
+
+  /// Bóc tách số tiền từ nội dung văn bản hóa đơn hoặc danh sách các hàng đã ghép tọa độ
+  static double? extractAmount(String text, {List<String>? rows}) {
+    if (text.trim().isEmpty && (rows == null || rows.isEmpty)) return null;
+
+    final lines = (rows != null && rows.isNotEmpty)
+        ? rows.map((l) => l.trim()).where((l) => l.isNotEmpty).toList()
+        : text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     if (lines.isEmpty) return null;
 
     // 1. Quét từ khóa MẠNH: nếu có dòng khớp từ khóa mạnh, lấy dòng khớp CUỐI CÙNG có số
@@ -102,16 +144,15 @@ class RegexHelper {
       if (_isGarbageLine(line)) continue;
 
       final normalized = _normalizeText(line);
-      if (_isExcludedLine(normalized)) continue;
+      if (_isExcludedLine(normalized, allowCash: false)) continue;
 
       final hasStrong = _strongKeywords.any((kw) => normalized.contains(kw));
       if (hasStrong) {
         var amount = _findLargestAmountInLine(line);
         if (amount == null || amount <= 0) {
-          // Nếu dòng chứa từ khóa không có số tiền, kiểm tra dòng tiếp theo (thường gặp khi ngắt dòng)
           if (i + 1 < lines.length && !_isGarbageLine(lines[i + 1])) {
             final nextNorm = _normalizeText(lines[i + 1]);
-            if (!_isExcludedLine(nextNorm)) {
+            if (!_isExcludedLine(nextNorm, allowCash: false)) {
               amount = _findLargestAmountInLine(lines[i + 1]);
             }
           }
@@ -126,14 +167,38 @@ class RegexHelper {
       return lastStrongAmount;
     }
 
-    // 2. Quét từ khóa YẾU: chỉ khi không có từ khóa mạnh, lấy dòng khớp CUỐI CÙNG có số
+    // 2. BƯỚC 4: Nếu KHÔNG có dòng "tổng cộng", kiểm tra dòng "tiền mặt" / "cash"
+    double? lastCashAmount;
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (_isGarbageLine(line)) continue;
+
+      final normalized = _normalizeText(line);
+      final hasCash = normalized.contains('tien mat') || RegExp(r'\bcash\b').hasMatch(normalized);
+      if (hasCash) {
+        var amount = _findLargestAmountInLine(line);
+        if (amount == null || amount <= 0) {
+          if (i + 1 < lines.length && !_isGarbageLine(lines[i + 1])) {
+            final nextNorm = _normalizeText(lines[i + 1]);
+            if (!_isExcludedLine(nextNorm, allowCash: false)) {
+              amount = _findLargestAmountInLine(lines[i + 1]);
+            }
+          }
+        }
+        if (amount != null && amount > 0) {
+          lastCashAmount = amount;
+        }
+      }
+    }
+
+    // 3. Quét từ khóa YẾU: chỉ khi không có từ khóa mạnh
     double? lastWeakAmount;
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i];
       if (_isGarbageLine(line)) continue;
 
       final normalized = _normalizeText(line);
-      if (_isExcludedLine(normalized)) continue;
+      if (_isExcludedLine(normalized, allowCash: false)) continue;
       if (_isColumnHeader(normalized, line)) continue;
 
       final hasWeak = _weakKeywords.any((kw) => normalized.contains(kw));
@@ -142,7 +207,7 @@ class RegexHelper {
         if (amount == null || amount <= 0) {
           if (i + 1 < lines.length && !_isGarbageLine(lines[i + 1])) {
             final nextNorm = _normalizeText(lines[i + 1]);
-            if (!_isExcludedLine(nextNorm) && !_isColumnHeader(nextNorm, lines[i + 1])) {
+            if (!_isExcludedLine(nextNorm, allowCash: false) && !_isColumnHeader(nextNorm, lines[i + 1])) {
               amount = _findLargestAmountInLine(lines[i + 1]);
             }
           }
@@ -153,17 +218,62 @@ class RegexHelper {
       }
     }
 
-    if (lastWeakAmount != null) {
-      return lastWeakAmount;
-    }
-
-    // 3. Logic Fallback: Heuristic Toán học
+    // 4. Thu thập các số tiền từ các dòng món hàng hợp lệ (không phải dòng loại trừ/tiền thối)
     final List<double> allAmounts = [];
+    final List<double> itemAmounts = [];
+    bool hasChangeKeyword = false;
+
     for (final line in lines) {
       if (_isGarbageLine(line)) continue;
 
+      final normalized = _normalizeText(line);
+      if (normalized.contains('tien thoi') || normalized.contains('thoi lai')) {
+        hasChangeKeyword = true;
+      }
+
       final lineAmounts = _findAllAmountsInLine(line);
       allAmounts.addAll(lineAmounts.where((a) => a > 0));
+
+      if (!_isExcludedLine(normalized, allowCash: false)) {
+        itemAmounts.addAll(lineAmounts.where((a) => a > 0));
+      }
+    }
+
+    // Kiểm tra Heuristic Toán học: Tìm X thỏa mãn Max1 == Max2 + X (Tiền khách đưa = Bill + Tiền thối)
+    // BƯỚC 5: Kiểm tra chéo bằng tổng tập con các món hàng (Subset Sum)
+    if (itemAmounts.length >= 2) {
+      final sortedTargets = List.of(allAmounts)..sort((a, b) => b.compareTo(a));
+      for (final target in sortedTargets.toSet()) {
+        final subset = findSubsetSum(itemAmounts, target);
+        if (subset != null) {
+          return target;
+        }
+      }
+    }
+
+    // Kiểm tra Heuristic Toán học: Tìm X thỏa mãn Max1 == Max2 + X (Tiền khách đưa = Bill + Tiền thối)
+    // CHỈ áp dụng trả về Max2 khi hóa đơn có đề cập tiền thối / khách đưa
+    if (hasChangeKeyword && allAmounts.length >= 2) {
+      final sorted = List.of(allAmounts)..sort((a, b) => b.compareTo(a));
+      final max1 = sorted[0];
+      final max2 = sorted[1];
+      if (max1 > max2) {
+        for (int i = 2; i < sorted.length; i++) {
+          final x = sorted[i];
+          if ((max1 - (max2 + x)).abs() < 1.0) {
+            return max2;
+          }
+        }
+      }
+    }
+
+    // Nếu không thỏa Max1=Max2+X và không có Subset Sum, ưu tiên dòng tiền mặt (khi không có tổng cộng và không có tiền thối)
+    if (lastCashAmount != null && !hasChangeKeyword) {
+      return lastCashAmount;
+    }
+
+    if (lastWeakAmount != null) {
+      return lastWeakAmount;
     }
 
     if (allAmounts.isEmpty) return null;
@@ -171,23 +281,7 @@ class RegexHelper {
 
     // Sắp xếp giảm dần (Descending)
     allAmounts.sort((a, b) => b.compareTo(a));
-
-    final max1 = allAmounts[0];
-    final max2 = allAmounts[1];
-
-    // Kiểm tra Heuristic Toán học: Tìm X thỏa mãn Max1 == Max2 + X
-    if (max1 > max2) {
-      for (int i = 2; i < allAmounts.length; i++) {
-        final x = allAmounts[i];
-        if ((max1 - (max2 + x)).abs() < 1.0) {
-          // Max1 là Tiền khách đưa, Max2 là Tổng bill, X là Tiền thối
-          return max2;
-        }
-      }
-    }
-
-    // Không có tiền thối: số lớn nhất chính là tổng bill
-    return max1;
+    return allAmounts.first;
   }
 
   /// Kiểm tra các dòng thông tin phụ, siêu dữ liệu không phải số tiền
@@ -245,16 +339,26 @@ class RegexHelper {
   }
 
   /// Bóc tách ngày tháng từ văn bản hóa đơn (dd/MM/yyyy, yyyy-MM-dd, dd-MM-yyyy, dd/MM/yy).
-  /// Gán giờ (HH:mm[:ss]) nếu có cùng dòng hoặc kế bên.
-  static DateTime? extractDate(String text) {
-    if (text.trim().isEmpty) return null;
+  /// BƯỚC 6: Năm có 5 chữ số như "13-11-20011" trả về null, không đoán sửa.
+  static DateTime? extractDate(String text, {List<String>? rows}) {
+    if (text.trim().isEmpty && (rows == null || rows.isEmpty)) return null;
 
-    final lines = text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+    final lines = (rows != null && rows.isNotEmpty)
+        ? rows.map((l) => l.trim()).where((l) => l.isNotEmpty).toList()
+        : text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     if (lines.isEmpty) return null;
 
-    final ymdRegex = RegExp(r'\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b');
-    final dmy4Regex = RegExp(r'\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})\b');
-    final dmy2Regex = RegExp(r'\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2})\b');
+    // BƯỚC 6: Bỏ qua chuỗi ngày có năm 5 chữ số trở lên (ví dụ: 13-11-20011)
+    final invalid5DigitYearRegex = RegExp(r'\b\d{1,2}[-/.]\d{1,2}[-/.]\d{5,}\b');
+    for (final line in lines) {
+      if (invalid5DigitYearRegex.hasMatch(line)) {
+        return null;
+      }
+    }
+
+    final ymdRegex = RegExp(r'(?<!\d)(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)');
+    final dmy4Regex = RegExp(r'(?<!\d)(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?!\d)');
+    final dmy2Regex = RegExp(r'(?<!\d)(\d{1,2})[-/.](\d{1,2})[-/.](\d{2})(?!\d)');
 
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i];
@@ -304,32 +408,30 @@ class RegexHelper {
   }
 
   /// Bóc tách tên cửa hàng dựa trên từ khóa nhận diện hoặc dòng văn bản đầu tiên hợp lệ.
-  static String? extractMerchantName(String text) {
-    if (text.trim().isEmpty) return null;
+  static String? extractMerchantName(String text, {List<String>? rows}) {
+    if (text.trim().isEmpty && (rows == null || rows.isEmpty)) return null;
 
-    final lines = text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+    final lines = (rows != null && rows.isNotEmpty)
+        ? rows.map((l) => l.trim()).where((l) => l.isNotEmpty).toList()
+        : text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     if (lines.isEmpty) return null;
 
-    // Bộ lọc nhận diện và loại bỏ rác URL / Web link / Query string
     final urlGarbageRegex = RegExp(
       r'(=|&|\?q=|http|www|\.com)',
       caseSensitive: false,
     );
 
-    // Các từ khóa đặc trưng của cửa hàng / thương hiệu bán lẻ
     final merchantKeywords = RegExp(
       r'(qu[aá]n\s*[aá]n|qu[aá]n|c[uử]a\s*h[aà]ng|si[eê]u\s*th[iị]|coopmart|co\.opmart|winmart|circle\s*k|b[aá]ch\s*h[oó]a\s*xanh|nh[aà]\s*h[aà]ng|coffee|cafe|highlands|ph[uú]c\s*long|familymart|gs25|7-eleven|ministop|kfc|lotteria|jollibee|store|shop)',
       caseSensitive: false,
     );
 
-    // 1. Tìm dòng có từ khóa cửa hàng / thương hiệu (bỏ qua dòng URL)
     for (final line in lines) {
       if (!urlGarbageRegex.hasMatch(line) && merchantKeywords.hasMatch(line)) {
         return _cleanMerchantName(line);
       }
     }
 
-    // 2. Heuristic fallback: Lấy dòng đầu tiên không phải URL, tiêu đề hóa đơn hay mã số thuế / địa chỉ
     final skipPatterns = RegExp(
       r'^(h[oó]a\s*đ[oơ]n|phi[eế]u|receipt|bill|mst|m[aã]\s*s[oố]\s*thu[eế]|đ[iị]a\s*ch[iỉ]|đ/c|address|tel|hotline|\d+)',
       caseSensitive: false,
@@ -341,7 +443,6 @@ class RegexHelper {
       }
     }
 
-    // 3. Fallback cuối: Lấy dòng đầu tiên hợp lệ không chứa URL
     for (final line in lines) {
       if (!urlGarbageRegex.hasMatch(line)) {
         return _cleanMerchantName(line);
@@ -363,9 +464,12 @@ class RegexHelper {
   static List<double> _findAllAmountsInLine(String line) {
     final List<double> results = [];
 
+    // BƯỚC 3: Gộp dấu cách xung quanh dấu phân cách hàng nghìn
+    final normalized = normalizeThousandSeparators(line);
+
     // Khớp định dạng kết thúc bằng k (ví dụ: 150k, 150.5k)
-    final kRegex = RegExp(r'(\d+(?:[.,]\d+)?)\s*[kK]\b');
-    for (final match in kRegex.allMatches(line)) {
+    final kRegex = RegExp(r'(?<![a-zA-Z#\u00C0-\u1EF9])(\d+(?:[.,]\d+)?)\s*[kK]\b');
+    for (final match in kRegex.allMatches(normalized)) {
       final numStr = match.group(1)!.replaceAll(',', '.');
       final val = double.tryParse(numStr);
       if (val != null) {
@@ -374,15 +478,16 @@ class RegexHelper {
     }
 
     // Loại bỏ chuỗi định dạng số điện thoại gạch nối nếu có (ví dụ: 9407863-8259956)
-    final cleanLine = line.replaceAll(RegExp(r'\b\d{6,11}\s*[-/]\s*\d{6,11}\b'), '');
+    final cleanLine = normalized.replaceAll(RegExp(r'\b\d{6,11}\s*[-/]\s*\d{6,11}\b'), '');
 
     // Khớp các con số thông thường hoặc có phân cách hàng nghìn (150.000, 150,000, 150000)
+    // BƯỚC 3: Chống rác - Bỏ qua token dính liền chữ cái (F1304, MC#01)
     final numberRegex = RegExp(
-      r'(\d{1,3}(?:[.,\s]\d{3})+(?:[.,]\d{1,2})?|\d{4,}(?:[.,]\d{1,2})?|\d{1,3}(?:[.,]\d{1,2}))',
+      r'(?<![a-zA-Z#\u00C0-\u1EF9])(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|\d{4,}(?:[.,]\d{1,2})?|\d{1,3}(?:[.,]\d{1,2}))(?![a-zA-Z\u00C0-\u1EF9])',
     );
 
     for (final match in numberRegex.allMatches(cleanLine)) {
-      final raw = match.group(0)!;
+      final raw = match.group(1)!;
       final parsed = _parseNumericString(raw, cleanLine);
       if (parsed != null && !results.contains(parsed)) {
         results.add(parsed);
@@ -394,6 +499,11 @@ class RegexHelper {
 
   static double? _parseNumericString(String raw, [String contextLine = '']) {
     var s = raw.replaceAll(RegExp(r'\s+'), '');
+
+    // BƯỚC 3: Chống rác - Token bắt đầu bằng số 0 dài (ví dụ "000887")
+    if (s.startsWith('00') || (s.length > 1 && s.startsWith('0') && !s.startsWith('0.') && !s.startsWith('0,'))) {
+      return null;
+    }
 
     // 150.000 hoặc 150,000
     if (RegExp(r'^\d{1,3}([.,]\d{3})+$').hasMatch(s)) {
@@ -425,32 +535,48 @@ class RegexHelper {
         s = s.replaceAll(',', '.');
       }
     } else {
-      // Số thuần không có dấu chấm/phẩy (ví dụ: 150000 hoặc 9407863)
-      // Nếu có từ 7 chữ số trở lên (>= 1.000.000) mà không có dấu phân cách hoặc đơn vị tiền tệ:
-      // Thường là số điện thoại hoặc mã số, ta bỏ qua
+      // Số thuần không có dấu chấm/phẩy (ví dụ: 537000 hoặc 1304 hoặc 9407863)
+      final val = double.tryParse(s);
+      if (val == null) return null;
+
+      final normLine = _normalizeText(contextLine);
+      final hasCashOrTotal = normLine.contains('tien mat') ||
+          normLine.contains('tong') ||
+          normLine.contains('total') ||
+          normLine.contains('thanh toan') ||
+          normLine.contains('cash');
+
+      // BƯỚC 3: Số dạng "537000" ở hàng chứa từ khóa tiền mặt/tổng được nhận ngay
+      if (hasCashOrTotal && val >= 1000) {
+        return val;
+      }
+
+      // Nếu có từ 7 chữ số trở lên (>= 1.000.000) mà không có đơn vị: thường là SĐT
       if (s.length >= 7) {
         final hasCurrency = RegExp(r'(vnd|vnđ|đ|tiền|tien|tổng|tong)', caseSensitive: false).hasMatch(contextLine);
-        if (!hasCurrency) {
-          return null;
-        }
+        if (!hasCurrency) return null;
       }
+
+      // BƯỚC 3: Số trần chỉ nhận làm tiền khi là bội số của 100
+      if (val >= 1000 && (val.toInt() % 100 == 0)) {
+        return val;
+      }
+
+      return null;
     }
 
     return double.tryParse(s);
   }
 
   static List<int> _findTimeNearLine(List<String> lines, int i) {
-    // 1. Ưu tiên giờ cùng dòng
     var time = _extractTime(lines[i]);
     if (time != null) return time;
 
-    // 2. Kiểm tra dòng kế tiếp
     if (i + 1 < lines.length) {
       time = _extractTime(lines[i + 1]);
       if (time != null) return time;
     }
 
-    // 3. Kiểm tra dòng ngay trước
     if (i - 1 >= 0) {
       time = _extractTime(lines[i - 1]);
       if (time != null) return time;
@@ -488,7 +614,6 @@ class RegexHelper {
 
     try {
       final dt = DateTime(year, month, day, hour, minute, second);
-      // Validate ngày thật: kiểm tra year/month/day khớp lại đầu vào để ngăn chặn overflow
       if (dt.year != year || dt.month != month || dt.day != day) {
         return null;
       }

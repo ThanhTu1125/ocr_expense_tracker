@@ -45,6 +45,7 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
 
   String? _rawOcrText;
   AmountDebugTrace? _debugTrace;
+  String? _dateWarning;
 
   @override
   void initState() {
@@ -70,14 +71,23 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
 
     setState(() {
       _isLoading = true;
+      _dateWarning = null;
     });
 
     try {
-      final rawText = await _ocrService.extractText(path);
-      final merchant = RegexHelper.extractMerchantName(rawText);
-      final amount = RegexHelper.extractAmount(rawText);
-      final date = RegexHelper.extractDate(rawText);
-      final trace = AmountDebugTracer.trace(rawText);
+      final ocrResult = await _ocrService.processImage(path);
+      final reconstructedRows =
+          OcrRowReconstructor.reconstructRows(ocrResult.lines);
+      final rawText = reconstructedRows.isNotEmpty
+          ? reconstructedRows.join('\n')
+          : ocrResult.text;
+
+      final merchant =
+          RegexHelper.extractMerchantName(rawText, rows: reconstructedRows);
+      final amount =
+          RegexHelper.extractAmount(rawText, rows: reconstructedRows);
+      final date = RegexHelper.extractDate(rawText, rows: reconstructedRows);
+      final trace = AmountDebugTracer.trace(rawText, rows: reconstructedRows);
 
       if (kDebugMode) {
         debugPrint('===============================================================');
@@ -95,17 +105,17 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
           debugPrint('  - Đường dẫn ảnh gốc trước crop: ${widget.debugOriginalPath}');
         }
         debugPrint('---------------------------------------------------------------');
-        debugPrint('(c) DANH SÁCH CÁC ỨNG VIÊN SỐ TIỀN:');
-        if (trace.candidates.isEmpty) {
-          debugPrint('  (Không tìm thấy ứng viên số tiền nào)');
-        } else {
-          for (final c in trace.candidates) {
-            final amtStr = c.amount != null
-                ? '${NumberFormat('#,###').format(c.amount)} đ'
-                : 'Không có';
-            debugPrint('  - Dòng ${c.lineNumber} ("${c.lineText}"): '
-                'Số tiền=$amtStr | Trạng thái=${c.status} | Lý do=${c.reason}');
-          }
+        debugPrint('(c) BẢNG PHÂN TÍCH TẤT CẢ CÁC DÒNG (KHÔNG BỎ SÓT DÒNG NÀO):');
+        for (final line in trace.allLines) {
+          final amtStr = line.parsedAmounts.isNotEmpty
+              ? line.parsedAmounts.map((a) => '${NumberFormat('#,###').format(a)} đ').join(', ')
+              : 'null';
+          debugPrint('  [Dòng ${(line.lineNumber).toString().padLeft(2, '0')}] '
+              'Text="${line.originalText}" | Norm="${line.normalizedText}" | '
+              'Rác=${line.isGarbage ? "CÓ (${line.garbageReason})" : "KHÔNG"} | '
+              'Tiền=$amtStr | '
+              'LoạiTrừ=${line.isExcluded ? "CÓ (${line.excludedReason})" : "KHÔNG"} | '
+              'TrạngThái=${line.status} | LýDo=${line.decisionReason}');
         }
         debugPrint('---------------------------------------------------------------');
         debugPrint('(d) QUY TẮC ĐÃ CHỐT KẾT QUẢ:');
@@ -126,15 +136,20 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
                   ? amount.toInt().toString()
                   : amount.toString();
         }
-        _dateController.text =
-            date != null
-                ? DateFormat('dd/MM/yyyy').format(date)
-                : DateFormat('dd/MM/yyyy').format(DateTime.now());
+
+        if (date != null) {
+          _dateController.text = DateFormat('dd/MM/yyyy').format(date);
+          _dateWarning = null;
+        } else {
+          _dateController.text = DateFormat('dd/MM/yyyy').format(DateTime.now());
+          _dateWarning = 'Không đọc được ngày, đang dùng hôm nay - hãy kiểm tra';
+        }
       }
     } catch (e) {
       debugPrint('OCR extraction failed: $e');
       if (mounted) {
         _dateController.text = DateFormat('dd/MM/yyyy').format(DateTime.now());
+        _dateWarning = 'Không đọc được ngày, đang dùng hôm nay - hãy kiểm tra';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Lỗi nhận diện OCR: $e')),
         );
@@ -362,10 +377,22 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _dateController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Ngày giao dịch (dd/MM/yyyy)',
-                        prefixIcon: Icon(Icons.calendar_today),
-                        border: OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.calendar_today),
+                        border: const OutlineInputBorder(),
+                        enabledBorder: _dateWarning != null
+                            ? const OutlineInputBorder(
+                                borderSide:
+                                    BorderSide(color: Colors.orange, width: 2.0),
+                              )
+                            : null,
+                        focusedBorder: _dateWarning != null
+                            ? const OutlineInputBorder(
+                                borderSide: BorderSide(
+                                    color: Colors.deepOrange, width: 2.0),
+                              )
+                            : null,
                       ),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
@@ -378,6 +405,26 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
                         return null;
                       },
                     ),
+                    if (_dateWarning != null) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(Icons.warning_amber_rounded,
+                              color: Colors.orange, size: 16),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              _dateWarning!,
+                              style: const TextStyle(
+                                color: Colors.deepOrange,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 16),
 
                     // Dropdown chọn TransactionCategory
@@ -628,11 +675,11 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
           ],
           const SizedBox(height: 16),
 
-          // (c) Danh sách các ứng viên số tiền (dòng, giá trị, lý do được chọn/loại)
+          // (c) Danh sách phân tích TẤT CẢ CÁC DÒNG (không bỏ dòng nào)
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              '(c) Danh sách các ứng viên số tiền:',
+              '(c) Phân tích TẤT CẢ CÁC DÒNG (không bỏ dòng nào):',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.grey.shade900,
@@ -640,79 +687,110 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          if (_debugTrace == null || _debugTrace!.candidates.isEmpty)
+          if (_debugTrace == null || _debugTrace!.allLines.isEmpty)
             const Text(
-              '(Không có ứng viên số tiền nào)',
+              '(Chưa có dữ liệu phân tích dòng)',
               style: TextStyle(fontStyle: FontStyle.italic),
             )
           else
             Column(
-              children: _debugTrace!.candidates.map((c) {
-                final isChosen = c.status == 'ĐƯỢC CHỌN';
+              children: _debugTrace!.allLines.map((line) {
+                final isChosen = line.status == 'ĐƯỢC CHỌN';
+                final isGarbage = line.isGarbage;
+                final isExcluded = line.isExcluded;
+                final hasAmount = line.parsedAmounts.isNotEmpty;
+
+                Color badgeColor = Colors.grey;
+                if (isChosen) {
+                  badgeColor = Colors.green;
+                } else if (isGarbage || isExcluded) {
+                  badgeColor = Colors.red.shade700;
+                } else if (hasAmount) {
+                  badgeColor = Colors.orange.shade800;
+                }
+
                 return Container(
                   margin: const EdgeInsets.only(bottom: 8),
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: isChosen ? Colors.green.shade50 : Colors.white,
+                    color: isChosen
+                        ? Colors.green.shade50
+                        : (isGarbage ? Colors.grey.shade100 : Colors.white),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: isChosen ? Colors.green : Colors.grey.shade300,
+                      color: isChosen
+                          ? Colors.green
+                          : (hasAmount ? Colors.orange.shade300 : Colors.grey.shade300),
                       width: isChosen ? 1.5 : 1.0,
                     ),
                   ),
-                  child: Row(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: isChosen ? Colors.green : Colors.grey.shade400,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          c.status,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: badgeColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              line.status,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Dòng ${c.lineNumber}: "${c.lineText}"',
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Dòng ${line.lineNumber}: "${line.originalText}"',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 13,
+                                fontSize: 12.5,
                               ),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Giá trị: ${c.amount != null ? "${NumberFormat('#,###').format(c.amount)} VNĐ" : "Không có"}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: isChosen
-                                    ? Colors.green.shade800
-                                    : Colors.black87,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Lý do: ${c.reason}',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: Colors.grey.shade800,
-                              ),
-                            ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '• Chuẩn hóa: "${line.normalizedText}"',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                      ),
+                      Text(
+                        '• Rác (_isGarbageLine): ${line.isGarbage ? "CÓ (${line.garbageReason})" : "KHÔNG"}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: line.isGarbage ? Colors.red.shade800 : Colors.black87,
+                          fontWeight: line.isGarbage ? FontWeight.w600 : FontWeight.normal,
                         ),
                       ),
+                      Text(
+                        '• Tiền parse được: ${line.parsedAmounts.isNotEmpty ? line.parsedAmounts.map((a) => "${NumberFormat('#,###').format(a)} đ").join(", ") : "KHÔNG CÓ"}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: line.parsedAmounts.isNotEmpty ? FontWeight.bold : FontWeight.normal,
+                          color: line.parsedAmounts.isNotEmpty ? Colors.blue.shade900 : Colors.grey.shade600,
+                        ),
+                      ),
+                      Text(
+                        '• Bị loại trừ (_isExcludedLine): ${line.isExcluded ? "CÓ (${line.excludedReason})" : "KHÔNG"}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: line.isExcluded ? Colors.red.shade800 : Colors.black87,
+                          fontWeight: line.isExcluded ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                      if (line.decisionReason.isNotEmpty)
+                        Text(
+                          '• Lý do: ${line.decisionReason}',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade800, fontStyle: FontStyle.italic),
+                        ),
                     ],
                   ),
                 );
