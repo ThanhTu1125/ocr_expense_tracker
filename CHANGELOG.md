@@ -2,6 +2,18 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Hotfix Android R8] Bổ sung dontwarn cho các bộ nhận diện ML Kit không dùng - 2026-10-08 17:54
+### Đã thực hiện
+- Khắc phục lỗi build release Gradle `minifyReleaseWithR8` thất bại do thiếu các class nhận diện ngôn ngữ Trung/Nhật/Hàn/Devanagari của `google_mlkit_text_recognition`.
+- Tạo file `android/app/proguard-rules.pro` với các chỉ thị `-dontwarn` cho 8 class (`ChineseTextRecognizerOptions`, `DevanagariTextRecognizerOptions`, `JapaneseTextRecognizerOptions`, `KoreanTextRecognizerOptions` cùng các `$Builder` tương ứng).
+- Cấu hình `proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")` trong khối `buildTypes.release` của `android/app/build.gradle.kts`.
+- Build release APK thành công với R8: `build/app/outputs/flutter-apk/app-release.apk` (86.7 MB / 90,909,077 bytes).
+### File ảnh hưởng
+- `android/app/build.gradle.kts`
+- `android/app/proguard-rules.pro`
+- `CHANGELOG.md`
+- `DEV_HISTORY.md`
+
 ## [Giai đoạn 3] Camera: Crop Thật + Tap-To-Focus - 2026-10-08 17:26
 ### Đã thực hiện
 - Triển khai tính năng **Tap-to-focus**:

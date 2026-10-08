@@ -1,6 +1,28 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Hotfix Android R8] Bổ sung dontwarn cho các bộ nhận diện ML Kit không dùng - 2026-10-08 17:54
+### Mục tiêu
+Sửa lỗi build release Android (Task `:app:minifyReleaseWithR8`) do R8 báo thiếu class từ `google_mlkit_text_recognition` đối với các gói ngôn ngữ Trung Quốc, Devanagari, Nhật Bản, Hàn Quốc mà dự án không bundle (chỉ dùng tiếng Việt / Latin).
+
+### Các việc đã làm
+1. **Kiểm tra hiện trạng**:
+   - `buildTypes.release` trong `android/app/build.gradle.kts` chưa được cấu hình `proguardFiles`.
+   - File `android/app/proguard-rules.pro` chưa tồn tại trong source code.
+   - Đối chiếu file sinh tự động `build/app/outputs/mapping/release/missing_rules.txt` xác định đúng 8 class bị thiếu cảnh báo.
+2. **Cấu hình Proguard / R8 Rules**:
+   - Tạo mới `android/app/proguard-rules.pro` với các dòng `-dontwarn` cho 8 class `ChineseTextRecognizerOptions`, `DevanagariTextRecognizerOptions`, `JapaneseTextRecognizerOptions`, `KoreanTextRecognizerOptions` cùng inner class `$Builder` tương ứng.
+   - Bổ sung `proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")` vào khối `buildTypes.release` trong `android/app/build.gradle.kts`, giữ nguyên cấu hình khác (`signingConfig`, `applicationId`, `minSdk`).
+3. **Build kiểm chứng**:
+   - Chạy lệnh `flutter build apk --release`.
+   - Quá trình chạy R8 thành công 100%, không phát sinh thêm cảnh báo missing classes nào.
+   - File APK release được tạo tại `build/app/outputs/flutter-apk/app-release.apk` dung lượng 86.7 MB (90,909,077 bytes).
+4. **Kiểm tra chất lượng**:
+   - `flutter analyze`: 0 issues found!
+   - `flutter test`: 57/57 tests passed (100%).
+
+---
+
 ## [Giai đoạn 3] Camera: Crop Thật + Tap-To-Focus - 2026-10-08 17:26
 ### Mục tiêu
 Tích hợp tính năng Tap-to-focus với animation điểm chạm trên CameraPreview, thực hiện crop thật theo đúng tỉ lệ khung ngắm (viewfinder) bằng package `image` trong background isolate (`compute()`), chuẩn hóa góc xoay EXIF bằng `bakeOrientation`, tách hàm quy đổi tọa độ thuần túy `CropCalculator` có unit test riêng, bổ sung nút "Chụp lại" ở màn hình Review.
