@@ -2,6 +2,36 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Giai đoạn 3] Camera: Crop Thật + Tap-To-Focus - 2026-10-08 17:26
+### Đã thực hiện
+- Triển khai tính năng **Tap-to-focus**:
+  - Bọc `CameraPreview` trong `GestureDetector`, bắt sự kiện `onTapUp`.
+  - Quy đổi tọa độ điểm chạm màn hình về tỉ lệ chuẩn hóa `Offset(0..1)` và gọi `setFocusPoint` + `setExposurePoint` (bọc `try/catch` an toàn cho các thiết bị/giả lập không hỗ trợ).
+  - Hiển thị animation vòng tròn ngắm màu vàng neon co giãn và mờ dần trong ~1 giây tại điểm chạm.
+- Triển khai tính năng **Crop thật theo khung ngắm (Viewfinder)**:
+  - Thêm package `image: ^4.10.1` vào `pubspec.yaml`.
+  - Xây dựng lớp tiện ích thuần `CropCalculator`: quy đổi chính xác hình học từ khung ngắm `viewfinderRect` trên màn hình preview sang pixel thật của ảnh gốc (hỗ trợ `BoxFit.cover` và `BoxFit.contain` chống letterbox/lệch aspect ratio, clamp biên an toàn).
+  - Xây dựng `ImageCropService`: xử lý ảnh nặng trong isolate độc lập thông qua `compute()` (đọc ảnh, `bakeOrientation` sửa góc quay EXIF, cắt ảnh với `copyCrop`, mã hóa JPG chất lượng cao) không làm đơ giật UI.
+  - Sau khi chụp, ảnh được cắt chính xác theo khung ngắm trước khi gửi đường dẫn sang `ReviewTransactionScreen` để OCR.
+- Bổ sung nút **"Chụp lại"**:
+  - Thêm nút chụp lại trên AppBar và nút bấm nổi bật cạnh nút "Lưu giao dịch" trong `ReviewTransactionScreen`, hỗ trợ người dùng quét lại ngay lập tức khi chất lượng OCR không đạt.
+- Bổ sung bộ kiểm thử:
+  - `test/crop_calculator_test.dart`: 7 unit tests cho các tỉ lệ hiển thị (1:1, ảnh rộng hơn preview, ảnh dài hơn preview, contain letterbox, clamp biên, kích thước 0).
+  - `test/image_crop_service_test.dart`: kiểm thử cắt ảnh thật trong isolate và xác thực kích thước file đầu ra.
+  - Nâng cấp `test/widget_test.dart`: kiểm thử hiển thị và điều hướng nút "Chụp lại".
+  - Tổng số test: **57/57 tests passed (100%)**, `flutter analyze` đạt **0 issues**.
+### File ảnh hưởng
+- `pubspec.yaml`
+- `pubspec.lock`
+- `lib/utils/crop_calculator.dart`
+- `lib/services/image_crop_service.dart`
+- `lib/screens/scanner_screen.dart`
+- `lib/screens/review_transaction_screen.dart`
+- `test/crop_calculator_test.dart`
+- `test/image_crop_service_test.dart`
+- `test/widget_test.dart`
+- `CHANGELOG.md`
+
 ## [Giai đoạn 2] Database An Toàn + CRUD (Repository + Provider) - 2026-10-08 17:16
 ### Đã thực hiện
 - Thiết kế interface `TransactionRepository`: cung cấp đầy đủ các phương thức `init`, `save`, `update`, `delete`, `getAll`, `getByCategory`, `getByDateRange`, `getTransactionsByWeek`, `getExpensesByCategory`.

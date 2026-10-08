@@ -40,7 +40,7 @@ void main() {
     expect(find.text('Scanner'), findsOneWidget);
   });
 
-  testWidgets('Test 3: ReviewTransactionScreen renders correctly with null imagePath', (WidgetTester tester) async {
+  testWidgets('Test 3: ReviewTransactionScreen renders correctly with null imagePath and shows Retake button', (WidgetTester tester) async {
     await tester.pumpWidget(
       ChangeNotifierProvider<TransactionController>.value(
         value: controller,
@@ -51,6 +51,8 @@ void main() {
     );
 
     expect(find.text('Review Transaction'), findsOneWidget);
+    expect(find.text('Chụp lại'), findsOneWidget);
+    expect(find.text('Lưu giao dịch'), findsOneWidget);
   });
 
   testWidgets('Test 4: Dashboard renders chart cards and empty state gracefully', (WidgetTester tester) async {
@@ -148,5 +150,50 @@ void main() {
     // Quay lại màn hình Dashboard bình thường
     expect(find.text('Lỗi kết nối cơ sở dữ liệu'), findsNothing);
     expect(find.text('Chi tiêu tuần này'), findsOneWidget);
+  });
+
+  testWidgets('Test 8: Tapping Chụp lại on ReviewTransactionScreen pops or navigates back', (WidgetTester tester) async {
+    bool returnedToPreviousScreen = false;
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TransactionController>.value(
+        value: controller,
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ReviewTransactionScreen(imagePath: null),
+                      ),
+                    );
+                    returnedToPreviousScreen = true;
+                  },
+                  child: const Text('Open Review'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Mở ReviewTransactionScreen
+    await tester.tap(find.text('Open Review'));
+    await tester.pumpAndSettle();
+    expect(find.text('Review Transaction'), findsOneWidget);
+
+    // Bấm nút Chụp lại trên AppBar
+    final retakeBtn = find.byTooltip('Chụp lại');
+    expect(retakeBtn, findsOneWidget);
+    await tester.tap(retakeBtn);
+    await tester.pumpAndSettle();
+
+    // Đã quay về màn hình trước
+    expect(returnedToPreviousScreen, isTrue);
+    expect(find.text('Open Review'), findsOneWidget);
   });
 }

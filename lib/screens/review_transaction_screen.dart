@@ -10,6 +10,7 @@ import '../controllers/transaction_controller.dart';
 import '../models/transaction.dart';
 import '../services/ocr_service.dart';
 import '../utils/regex_helper.dart';
+import 'scanner_screen.dart';
 
 class ReviewTransactionScreen extends StatefulWidget {
   const ReviewTransactionScreen({
@@ -187,6 +188,14 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
     }
   }
 
+  void _retakePhoto() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacementNamed(context, ScannerScreen.routeName);
+    }
+  }
+
   @override
   void dispose() {
     _merchantController.dispose();
@@ -203,6 +212,13 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Review Transaction'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.camera_alt),
+            tooltip: 'Chụp lại',
+            onPressed: _isSaving ? null : _retakePhoto,
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(
@@ -351,26 +367,44 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // 3. Dưới cùng: Nút Lưu giao dịch
-                    FilledButton.icon(
-                      onPressed: _isSaving ? null : _saveTransaction,
-                      icon: _isSaving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.save),
-                      label: Text(
-                        _isSaving ? 'Đang lưu...' : 'Lưu giao dịch',
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
+                    // 3. Dưới cùng: Nút Chụp lại & Lưu giao dịch
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isSaving ? null : _retakePhoto,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Chụp lại'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: FilledButton.icon(
+                            onPressed: _isSaving ? null : _saveTransaction,
+                            icon: _isSaving
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.save),
+                            label: Text(
+                              _isSaving ? 'Đang lưu...' : 'Lưu giao dịch',
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

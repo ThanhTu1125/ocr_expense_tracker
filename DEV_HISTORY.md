@@ -1,6 +1,39 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Giai đoạn 3] Camera: Crop Thật + Tap-To-Focus - 2026-10-08 17:26
+### Mục tiêu
+Tích hợp tính năng Tap-to-focus với animation điểm chạm trên CameraPreview, thực hiện crop thật theo đúng tỉ lệ khung ngắm (viewfinder) bằng package `image` trong background isolate (`compute()`), chuẩn hóa góc xoay EXIF bằng `bakeOrientation`, tách hàm quy đổi tọa độ thuần túy `CropCalculator` có unit test riêng, bổ sung nút "Chụp lại" ở màn hình Review.
+
+### Các việc đã làm
+1. **Tap-to-focus trên CameraPreview**:
+   - Bọc CameraPreview bằng `GestureDetector` (bắt `onTapUp`).
+   - Quy đổi tọa độ chạm từ pixel màn hình sang dải `[0.0, 1.0]` tương đối: `dx = (x / width).clamp(0, 1)`, `dy = (y / height).clamp(0, 1)`.
+   - Gọi `controller.setFocusPoint(Offset(dx, dy))` và `controller.setExposurePoint(Offset(dx, dy))` bọc trong khối `try/catch` an toàn.
+   - Thêm `AnimationController` hiển thị hiệu ứng vòng tròn ngắm màu vàng neon co giãn và mờ dần trong thời lượng ~1000ms.
+2. **Hàm thuần quy đổi tọa độ CropCalculator**:
+   - Xây dựng `CropCalculator.calculateCropRect` và `toPixelBox`:
+     - Nhận đầu vào `previewSize`, `imageSize`, `viewfinderRect`, và kiểu co giãn `BoxFit`.
+     - Tính toán chính xác khoảng dôi/lệch `offsetX, offsetY` cho `BoxFit.cover` và `BoxFit.contain` (chống méo ảnh và letterbox viền đen).
+     - Quy đổi tọa độ khung ngắm thành vùng pixel tương ứng trên ảnh thật.
+     - Bảo vệ an toàn chống vượt biên bằng `clamp`.
+   - Viết 7 unit tests kiểm tra đa dạng tỉ lệ (1:1, ảnh ngang, ảnh dọc, letterbox, viền ngoài).
+3. **Cắt ảnh thật bằng ImageCropService trong Isolate**:
+   - Thêm package `image: ^4.10.1` vào `pubspec.yaml`.
+   - Đóng gói logic giải mã ảnh, gọi `img.bakeOrientation` để đưa ảnh về chiều thẳng đứng theo chuẩn EXIF, áp dụng `img.copyCrop` và mã hóa JPG chất lượng cao.
+   - Toàn bộ quá trình chạy qua `compute(_processCropTask, params)` trong isolate riêng biệt để giữ cho UI 60fps mượt mà.
+   - Sau khi chụp, ảnh gốc tạm thời được xóa sau khi cắt thành công để tiết kiệm bộ nhớ.
+4. **Nút "Chụp lại" (Retake) trên ReviewTransactionScreen**:
+   - Bổ sung nút camera trên AppBar và nút "Chụp lại" dạng OutlinedButton nằm cạnh nút "Lưu giao dịch".
+   - Gọi `Navigator.pop(context)` để quay lại màn hình camera ngay tức thì hoặc mở ScannerScreen nếu cần.
+5. **Kiểm thử**:
+   - Thêm `test/crop_calculator_test.dart` (7 tests).
+   - Thêm `test/image_crop_service_test.dart` (1 test).
+   - Nâng cấp `test/widget_test.dart` (8 tests).
+   - Tổng cộng **57/57 tests passed 100%**, `flutter analyze` 0 issues.
+
+---
+
 ## [Giai đoạn 2] Database An Toàn + CRUD (Repository + Provider) - 2026-10-08 17:16
 ### Mục tiêu
 Tách tầng Repository (`TransactionRepository`), cài đặt `IsarTransactionRepository` (production) và `InMemoryTransactionRepository` (testing), loại bỏ hoàn toàn cơ chế fallback âm thầm `useMock`, bổ sung trường `thumbPath`, xử lý xóa ảnh an toàn khi delete, quản lý trạng thái bằng Provider (`TransactionController`), hiển thị màn hình lỗi kèm nút Thử lại khi Isar fail.
