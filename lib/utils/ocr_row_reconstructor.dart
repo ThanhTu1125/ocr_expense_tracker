@@ -25,11 +25,10 @@ class OcrResult {
 
 /// Tiện ích ghép dòng theo tọa độ hình học (Pure functions)
 class OcrRowReconstructor {
-  /// Gom các dòng cùng hàng theo vị trí tọa độ
-  /// - Sắp xếp theo tâm dọc
-  /// - Gom dòng cùng hàng nếu:
-  ///   + Độ chồng lấp theo chiều dọc > 50% chiều cao nhỏ hơn, HOẶC
-  ///   + |Chênh lệch tâm y| < 0.6 x chiều cao trung vị
+  /// Gom các dòng cùng hàng theo vị trí tọa độ:
+  /// - Tâm y chênh nhau < 0.8 x chiều cao LỚN HƠN của cặp, HOẶC
+  /// - Vùng chồng lấp dọc > 30% chiều cao NHỎ HƠN của cặp
+  /// - ĐỒNG THỜI hai dòng không chồng lấp theo chiều ngang (overlapX <= 15% width nhỏ hơn)
   /// - Trong mỗi hàng, sắp xếp theo x từ trái qua phải và nối bằng một dấu cách
   static List<String> reconstructRows(List<OcrLine> lines) {
     if (lines.isEmpty) return [];
@@ -38,10 +37,6 @@ class OcrRowReconstructor {
         .where((l) => l.text.trim().isNotEmpty && l.boundingBox.height > 0)
         .toList();
     if (validLines.isEmpty) return [];
-
-    // Tính chiều cao trung vị (median height)
-    final heights = validLines.map((l) => l.boundingBox.height).toList()..sort();
-    final medianHeight = heights[heights.length ~/ 2];
 
     // Sắp xếp các line theo tâm dọc
     final sortedByY = List<OcrLine>.from(validLines)
@@ -56,21 +51,27 @@ class OcrRowReconstructor {
       }
 
       final lastRow = rows.last;
-      final rowTop = lastRow.map((l) => l.boundingBox.top).reduce(min);
-      final rowBottom = lastRow.map((l) => l.boundingBox.bottom).reduce(max);
-      final rowCenterY = (rowTop + rowBottom) / 2;
-      final rowHeight = lastRow.map((l) => l.boundingBox.height).reduce((a, b) => a + b) / lastRow.length;
+      final refLine = lastRow.last;
 
-      final overlapTop = max(line.boundingBox.top, rowTop);
-      final overlapBottom = min(line.boundingBox.bottom, rowBottom);
+      final maxH = max(line.boundingBox.height, refLine.boundingBox.height);
+      final minH = min(line.boundingBox.height, refLine.boundingBox.height);
+      final cyDiff = (line.boundingBox.center.dy - refLine.boundingBox.center.dy).abs();
+
+      final overlapTop = max(line.boundingBox.top, refLine.boundingBox.top);
+      final overlapBottom = min(line.boundingBox.bottom, refLine.boundingBox.bottom);
       final overlapY = max(0.0, overlapBottom - overlapTop);
-      final minH = min(line.boundingBox.height, rowHeight);
+      final isVerticalOverlap = minH > 0 && (overlapY / minH) > 0.3;
 
-      final isOverlap = minH > 0 && (overlapY / minH) > 0.5;
-      final isCenterClose =
-          (line.boundingBox.center.dy - rowCenterY).abs() < (0.6 * medianHeight);
+      final isCenterClose = cyDiff < (0.8 * maxH);
 
-      if (isOverlap || isCenterClose) {
+      // Kiểm tra không chồng lấp ngang
+      final overlapLeft = max(line.boundingBox.left, refLine.boundingBox.left);
+      final overlapRight = min(line.boundingBox.right, refLine.boundingBox.right);
+      final overlapX = max(0.0, overlapRight - overlapLeft);
+      final minW = min(line.boundingBox.width, refLine.boundingBox.width);
+      final noHorizontalOverlap = minW > 0 ? (overlapX / minW) <= 0.15 : true;
+
+      if ((isCenterClose || isVerticalOverlap) && noHorizontalOverlap) {
         lastRow.add(line);
       } else {
         rows.add([line]);

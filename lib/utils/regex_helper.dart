@@ -1,3 +1,22 @@
+/// Kết quả kiểm tra chéo tổng các món hàng
+class CrossCheckResult {
+  final double totalAmount;
+  final List<double> itemAmounts;
+  final List<int> suspiciousLineNumbers;
+  final double? inferredDiff;
+  final bool isExact;
+  final String description;
+
+  const CrossCheckResult({
+    required this.totalAmount,
+    required this.itemAmounts,
+    required this.suspiciousLineNumbers,
+    this.inferredDiff,
+    required this.isExact,
+    required this.description,
+  });
+}
+
 class RegexHelper {
   static const List<String> _strongKeywords = [
     'tong cong',
@@ -95,8 +114,211 @@ class RegexHelper {
     );
   }
 
-  /// Kiểm tra chéo bằng tổng tập con (Subset Sum)
-  /// Trả về tập con các ứng viên có tổng bằng target (nếu có ít nhất 2 phần tử)
+  /// Thử sửa các ký tự chữ dễ nhầm trong nhóm số sau dấu phân cách hàng nghìn
+  /// (b, o, O, D, Q -> 0; l, I -> 1; S -> 5; B -> 8)
+  static double? tryFixOcrAmount(String line) {
+    final text = normalizeThousandSeparators(line);
+
+    const fixMap = {
+      'b': '0', 'o': '0', 'O': '0', 'd': '0', 'D': '0', 'q': '0', 'Q': '0',
+      'l': '1', 'i': '1', 'I': '1',
+      's': '5', 'S': '5',
+      'B': '8',
+    };
+
+    final pattern = RegExp(r'(?<=\d)[.,]\s*([a-zA-Z0-9]{2,3})\b');
+    final match = pattern.firstMatch(text);
+    if (match != null) {
+      var grp = match.group(1)!;
+      if (grp.length == 2 && grp == '00') {
+        grp = '000';
+      } else if (grp.length == 3) {
+        for (final entry in fixMap.entries) {
+          grp = grp.replaceAll(entry.key, entry.value);
+        }
+      }
+      if (RegExp(r'^\d{3}$').hasMatch(grp)) {
+        final fixedLine = text.replaceRange(match.start, match.end, grp);
+        final amt = _findLargestAmountInLine(fixedLine);
+        if (amt != null && amt > 0) {
+          return amt;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Kiểm tra xem một dòng có phải chỉ gồm đúng một số tiền hay không
+  static bool _isOnlyAmountLine(String line) {
+    final trimmed = line.trim();
+    if (trimmed.isEmpty) return false;
+
+    // Bỏ qua mã số bắt đầu bằng 00 (như 000887)
+    if (trimmed.startsWith('00') || (trimmed.length > 1 && trimmed.startsWith('0') && !trimmed.startsWith('0.') && !trimmed.startsWith('0,'))) {
+      return false;
+    }
+
+    // Chuẩn hóa dấu phân cách
+    final norm = normalizeThousandSeparators(trimmed);
+
+    // Bỏ các ký hiệu tiền tệ
+    final clean = norm.replaceAll(RegExp(r'(vnd|vnđ|đ|k|\$)', caseSensitive: false), '').trim();
+    return RegExp(r'^\d{1,3}([.,]\d{3})+$').hasMatch(clean) ||
+        (RegExp(r'^\d{4,}$').hasMatch(clean) && (int.tryParse(clean) ?? 0) % 100 == 0);
+  }
+
+  /// Quét tối đa maxLookahead (mặc định 2) dòng kế tiếp khi dòng từ khóa không có số.
+  /// BƯỚC 3: Dòng kế tiếp phải CHỈ GỒM MỘT SỐ TIỀN mới được gắn cho từ khóa.
+  static double? _findAmountInNextLines(
+    List<String> lines,
+    int currentIndex, {
+    int maxLookahead = 2,
+    bool allowCash = false,
+  }) {
+    int checkedLines = 0;
+    for (int step = 1; (currentIndex + step) < lines.length && checkedLines < maxLookahead; step++) {
+      final nextLine = lines[currentIndex + step];
+      final trimmed = nextLine.trim();
+      if (trimmed.isEmpty) continue;
+
+      // Cho phép vượt qua dòng kẻ phân cách (***, ---, ===)
+      if (RegExp(r'^[\s*\-=_~]{3,}$').hasMatch(trimmed)) {
+        continue;
+      }
+
+      if (_isGarbageLine(trimmed)) {
+        checkedLines++;
+        break; // Gặp dòng rác khác thì dừng, không nhảy cóc bừa bãi
+      }
+
+      final nextNorm = _normalizeText(trimmed);
+      if (_isExcludedLine(nextNorm, allowCash: allowCash) || _isColumnHeader(nextNorm, trimmed)) {
+        checkedLines++;
+        break;
+      }
+
+      checkedLines++;
+
+      // Chỉ gắn khi dòng này chỉ gồm một số tiền
+      if (_isOnlyAmountLine(trimmed)) {
+        final amount = _findLargestAmountInLine(trimmed);
+        if (amount != null && amount > 0) {
+          return amount;
+        }
+      } else {
+        break;
+      }
+    }
+    return null;
+  }
+
+  /// BƯỚC 5: Kiểm tra chéo tổng các món hàng
+  /// Ứng viên X được xem là tổng khi X >= mọi ứng viên khác và X bằng
+  /// tổng của TẤT CẢ ứng viên còn lại
+  static CrossCheckResult? crossCheckTotal(
+    List<String> lines,
+    List<double> allAmounts,
+  ) {
+    if (lines.isEmpty || allAmounts.isEmpty) return null;
+
+    final sortedCandidates = List.of(allAmounts)..sort((a, b) => b.compareTo(a));
+    final maxX = sortedCandidates.first;
+    if (maxX <= 0) return null;
+
+    final validItemAmounts = <double>[];
+    final suspiciousLines = <({int lineNum, String lineText, double? fixedVal})>[];
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (_isGarbageLine(line)) continue;
+
+      final norm = _normalizeText(line);
+      if (_isExcludedLine(norm, allowCash: false)) continue;
+      if (_isColumnHeader(norm, line)) continue;
+
+      // Bỏ qua các dòng từ khóa tổng hoặc tiền mặt/thanh toán (đây không phải món hàng)
+      final isTotalOrCash = _strongKeywords.any((kw) => norm.contains(kw)) ||
+          _weakKeywords.any((kw) => norm.contains(kw)) ||
+          norm.contains('tien mat') ||
+          RegExp(r'\bcash\b').hasMatch(norm);
+      if (isTotalOrCash) continue;
+
+      // Dòng món hàng chứa chữ cái hoặc là dòng chỉ gồm một số tiền (trong hóa đơn OCR theo cột)
+      final hasLetters = RegExp(r'[a-zA-Z\u00C0-\u1EF9]{2,}').hasMatch(norm);
+      final isOnlyAmount = _isOnlyAmountLine(line);
+      if (!hasLetters && !isOnlyAmount) continue;
+
+      final lineAmounts = _findAllAmountsInLine(line);
+      final validAmounts = lineAmounts.where((a) => a > 0 && (a - maxX).abs() > 0.01).toList();
+
+      if (validAmounts.isNotEmpty) {
+        validAmounts.sort((a, b) => b.compareTo(a));
+        validItemAmounts.add(validAmounts.first);
+      } else if (hasLetters) {
+        final hasNumericTrace = RegExp(r'(\d|[.,]|b00|boo)').hasMatch(line);
+        if (hasNumericTrace) {
+          final fixed = tryFixOcrAmount(line);
+          suspiciousLines.add((
+            lineNum: i + 1,
+            lineText: line,
+            fixedVal: fixed,
+          ));
+        }
+      }
+    }
+
+    if (validItemAmounts.length < 2) return null;
+
+    final S = validItemAmounts.fold<double>(0.0, (sum, e) => sum + e);
+
+    // 1. Khớp hoàn hảo không có dòng nghi ngờ
+    if (suspiciousLines.isEmpty && (maxX - S).abs() < 1.0) {
+      return CrossCheckResult(
+        totalAmount: maxX,
+        itemAmounts: validItemAmounts,
+        suspiciousLineNumbers: [],
+        inferredDiff: 0,
+        isExact: true,
+        description:
+            'Khớp tổng tất cả các món: ${validItemAmounts.map((e) => e.toInt().toString()).join(' + ')} = ${maxX.toInt()} đ',
+      );
+    }
+
+    // 2. Có dòng nghi ngờ và thử sửa thành công
+    if (suspiciousLines.isNotEmpty) {
+      final fixedSum = suspiciousLines.fold<double>(0.0, (sum, e) => sum + (e.fixedVal ?? 0.0));
+      if (fixedSum > 0 && (maxX - (S + fixedSum)).abs() < 1.0) {
+        final allFixedItems = [...validItemAmounts, ...suspiciousLines.map((e) => e.fixedVal ?? 0.0)];
+        return CrossCheckResult(
+          totalAmount: maxX,
+          itemAmounts: allFixedItems,
+          suspiciousLineNumbers: suspiciousLines.map((e) => e.lineNum).toList(),
+          inferredDiff: fixedSum,
+          isExact: true,
+          description:
+              'Khớp tổng sau khi sửa OCR: ${validItemAmounts.map((e) => e.toInt().toString()).join(' + ')} + ${suspiciousLines.map((e) => '${e.fixedVal?.toInt()} (dòng ${e.lineNum})').join(' + ')} = ${maxX.toInt()} đ',
+        );
+      }
+
+      // 3. Có dòng nghi ngờ, maxX > S và độ lệch là bội số nguyên của 1000
+      final diff = maxX - S;
+      if (diff > 0 && (diff.toInt() % 1000 == 0) && (diff / suspiciousLines.length >= 1000)) {
+        return CrossCheckResult(
+          totalAmount: maxX,
+          itemAmounts: validItemAmounts,
+          suspiciousLineNumbers: suspiciousLines.map((e) => e.lineNum).toList(),
+          inferredDiff: diff,
+          isExact: false,
+          description:
+              'Khớp tổng, thiếu ${suspiciousLines.length} dòng nghi ngờ (${suspiciousLines.map((e) => 'dòng ${e.lineNum}').join(', ')}), giá trị suy ra ${diff.toInt()} đ',
+        );
+      }
+    }
+
+    return null;
+  }
+
+  /// Kiểm tra chéo bằng tổng tập con (Subset Sum) - giữ cho backward-compatibility
   static List<double>? findSubsetSum(List<double> candidates, double target) {
     final items = candidates
         .where((x) => x > 0 && x < target - 0.5)
@@ -137,7 +359,7 @@ class RegexHelper {
         : text.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
     if (lines.isEmpty) return null;
 
-    // 1. Quét từ khóa MẠNH: nếu có dòng khớp từ khóa mạnh, lấy dòng khớp CUỐI CÙNG có số
+    // (1) BƯỚC 4: Quét từ khóa MẠNH: lấy dòng khớp CUỐI CÙNG có số
     double? lastStrongAmount;
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i];
@@ -150,12 +372,7 @@ class RegexHelper {
       if (hasStrong) {
         var amount = _findLargestAmountInLine(line);
         if (amount == null || amount <= 0) {
-          if (i + 1 < lines.length && !_isGarbageLine(lines[i + 1])) {
-            final nextNorm = _normalizeText(lines[i + 1]);
-            if (!_isExcludedLine(nextNorm, allowCash: false)) {
-              amount = _findLargestAmountInLine(lines[i + 1]);
-            }
-          }
+          amount = _findAmountInNextLines(lines, i, maxLookahead: 2, allowCash: false);
         }
         if (amount != null && amount > 0) {
           lastStrongAmount = amount;
@@ -167,63 +384,12 @@ class RegexHelper {
       return lastStrongAmount;
     }
 
-    // 2. BƯỚC 4: Nếu KHÔNG có dòng "tổng cộng", kiểm tra dòng "tiền mặt" / "cash"
+    // (2) BƯỚC 4: Hàng "tiền mặt" / "thanh toán" có số khi hóa đơn KHÔNG có "tổng cộng"
     double? lastCashAmount;
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      if (_isGarbageLine(line)) continue;
-
-      final normalized = _normalizeText(line);
-      final hasCash = normalized.contains('tien mat') || RegExp(r'\bcash\b').hasMatch(normalized);
-      if (hasCash) {
-        var amount = _findLargestAmountInLine(line);
-        if (amount == null || amount <= 0) {
-          if (i + 1 < lines.length && !_isGarbageLine(lines[i + 1])) {
-            final nextNorm = _normalizeText(lines[i + 1]);
-            if (!_isExcludedLine(nextNorm, allowCash: false)) {
-              amount = _findLargestAmountInLine(lines[i + 1]);
-            }
-          }
-        }
-        if (amount != null && amount > 0) {
-          lastCashAmount = amount;
-        }
-      }
-    }
-
-    // 3. Quét từ khóa YẾU: chỉ khi không có từ khóa mạnh
-    double? lastWeakAmount;
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      if (_isGarbageLine(line)) continue;
-
-      final normalized = _normalizeText(line);
-      if (_isExcludedLine(normalized, allowCash: false)) continue;
-      if (_isColumnHeader(normalized, line)) continue;
-
-      final hasWeak = _weakKeywords.any((kw) => normalized.contains(kw));
-      if (hasWeak) {
-        var amount = _findLargestAmountInLine(line);
-        if (amount == null || amount <= 0) {
-          if (i + 1 < lines.length && !_isGarbageLine(lines[i + 1])) {
-            final nextNorm = _normalizeText(lines[i + 1]);
-            if (!_isExcludedLine(nextNorm, allowCash: false) && !_isColumnHeader(nextNorm, lines[i + 1])) {
-              amount = _findLargestAmountInLine(lines[i + 1]);
-            }
-          }
-        }
-        if (amount != null && amount > 0) {
-          lastWeakAmount = amount;
-        }
-      }
-    }
-
-    // 4. Thu thập các số tiền từ các dòng món hàng hợp lệ (không phải dòng loại trừ/tiền thối)
-    final List<double> allAmounts = [];
-    final List<double> itemAmounts = [];
     bool hasChangeKeyword = false;
 
-    for (final line in lines) {
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
       if (_isGarbageLine(line)) continue;
 
       final normalized = _normalizeText(line);
@@ -231,28 +397,39 @@ class RegexHelper {
         hasChangeKeyword = true;
       }
 
-      final lineAmounts = _findAllAmountsInLine(line);
-      allAmounts.addAll(lineAmounts.where((a) => a > 0));
-
-      if (!_isExcludedLine(normalized, allowCash: false)) {
-        itemAmounts.addAll(lineAmounts.where((a) => a > 0));
-      }
-    }
-
-    // Kiểm tra Heuristic Toán học: Tìm X thỏa mãn Max1 == Max2 + X (Tiền khách đưa = Bill + Tiền thối)
-    // BƯỚC 5: Kiểm tra chéo bằng tổng tập con các món hàng (Subset Sum)
-    if (itemAmounts.length >= 2) {
-      final sortedTargets = List.of(allAmounts)..sort((a, b) => b.compareTo(a));
-      for (final target in sortedTargets.toSet()) {
-        final subset = findSubsetSum(itemAmounts, target);
-        if (subset != null) {
-          return target;
+      final hasCash = normalized.contains('tien mat') ||
+          RegExp(r'\bcash\b').hasMatch(normalized) ||
+          normalized.contains('thanh toan');
+      if (hasCash) {
+        var amount = _findLargestAmountInLine(line);
+        if (amount == null || amount <= 0) {
+          amount = _findAmountInNextLines(lines, i, maxLookahead: 2, allowCash: true);
+        }
+        if (amount != null && amount > 0) {
+          lastCashAmount = amount;
         }
       }
     }
 
-    // Kiểm tra Heuristic Toán học: Tìm X thỏa mãn Max1 == Max2 + X (Tiền khách đưa = Bill + Tiền thối)
-    // CHỈ áp dụng trả về Max2 khi hóa đơn có đề cập tiền thối / khách đưa
+    if (lastCashAmount != null && !hasChangeKeyword) {
+      return lastCashAmount;
+    }
+
+    // Thu thập tất cả các số tiền
+    final List<double> allAmounts = [];
+    for (final line in lines) {
+      if (_isGarbageLine(line)) continue;
+      final lineAmounts = _findAllAmountsInLine(line);
+      allAmounts.addAll(lineAmounts.where((a) => a > 0));
+    }
+
+    // (3) BƯỚC 4 & BƯỚC 5: KIỂM TRA CHÉO TỔNG (không bao giờ ghi đè bước 1 hoặc 2)
+    final crossCheck = crossCheckTotal(lines, allAmounts);
+    if (crossCheck != null) {
+      return crossCheck.totalAmount;
+    }
+
+    // (4) HEURISTIC TOÁN HỌC: Max1 = Max2 + X (Tiền khách đưa = Bill + Tiền thối)
     if (hasChangeKeyword && allAmounts.length >= 2) {
       final sorted = List.of(allAmounts)..sort((a, b) => b.compareTo(a));
       final max1 = sorted[0];
@@ -267,9 +444,26 @@ class RegexHelper {
       }
     }
 
-    // Nếu không thỏa Max1=Max2+X và không có Subset Sum, ưu tiên dòng tiền mặt (khi không có tổng cộng và không có tiền thối)
-    if (lastCashAmount != null && !hasChangeKeyword) {
-      return lastCashAmount;
+    // (5) TỪ KHÓA YẾU / SỐ LỚN NHẤT
+    double? lastWeakAmount;
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (_isGarbageLine(line)) continue;
+
+      final normalized = _normalizeText(line);
+      if (_isExcludedLine(normalized, allowCash: false)) continue;
+      if (_isColumnHeader(normalized, line)) continue;
+
+      final hasWeak = _weakKeywords.any((kw) => normalized.contains(kw));
+      if (hasWeak) {
+        var amount = _findLargestAmountInLine(line);
+        if (amount == null || amount <= 0) {
+          amount = _findAmountInNextLines(lines, i, maxLookahead: 2, allowCash: false);
+        }
+        if (amount != null && amount > 0) {
+          lastWeakAmount = amount;
+        }
+      }
     }
 
     if (lastWeakAmount != null) {

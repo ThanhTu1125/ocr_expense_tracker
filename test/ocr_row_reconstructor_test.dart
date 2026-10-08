@@ -64,5 +64,40 @@ void main() {
       expect(rows[0], equals('Dòng 1'));
       expect(rows[1], equals('Dòng 2'));
     });
+
+    test('BƯỚC 3: Ghép hàng chịu được chữ to/lệch Y - TIEN MAT (cx=130, cy=298, h=24) và 537.000 (cx=300, cy=312, h=22)', () {
+      final lines = [
+        OcrLine(
+          text: 'TIEN MAT',
+          boundingBox: Rect.fromCenter(center: const Offset(130, 298), width: 100, height: 24),
+        ),
+        OcrLine(
+          text: '537.000',
+          boundingBox: Rect.fromCenter(center: const Offset(300, 312), width: 80, height: 22),
+        ),
+      ];
+
+      final rows = OcrRowReconstructor.reconstructRows(lines);
+      expect(rows.length, equals(1));
+      expect(rows.first, equals('TIEN MAT 537.000'));
+    });
+
+    test('BƯỚC 3: Hai dòng món liên tiếp cách nhau khoảng 1.3 x chiều cao KHÔNG được gộp nhầm', () {
+      final lines = [
+        OcrLine(
+          text: '1 BUN SING 42, 000',
+          boundingBox: Rect.fromCenter(center: const Offset(150, 100), width: 200, height: 20),
+        ),
+        OcrLine(
+          text: '1 MI GION X CHAY 37,000',
+          boundingBox: Rect.fromCenter(center: const Offset(150, 126), width: 200, height: 20),
+        ),
+      ];
+
+      final rows = OcrRowReconstructor.reconstructRows(lines);
+      expect(rows.length, equals(2));
+      expect(rows[0], equals('1 BUN SING 42, 000'));
+      expect(rows[1], equals('1 MI GION X CHAY 37,000'));
+    });
   });
 }
