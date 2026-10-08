@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -9,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../controllers/transaction_controller.dart';
 import '../models/transaction.dart';
 import '../services/ocr_service.dart';
+import '../utils/amount_debug_tracer.dart';
 import '../utils/regex_helper.dart';
 import 'scanner_screen.dart';
 
@@ -16,11 +18,13 @@ class ReviewTransactionScreen extends StatefulWidget {
   const ReviewTransactionScreen({
     super.key,
     this.imagePath,
+    this.debugOriginalPath,
   });
 
   static const routeName = '/review';
 
   final String? imagePath;
+  final String? debugOriginalPath;
 
   @override
   State<ReviewTransactionScreen> createState() =>
@@ -38,6 +42,9 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
   TransactionCategory _selectedCategory = TransactionCategory.food;
   bool _isLoading = false;
   bool _isSaving = false;
+
+  String? _rawOcrText;
+  AmountDebugTrace? _debugTrace;
 
   @override
   void initState() {
@@ -70,8 +77,46 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
       final merchant = RegexHelper.extractMerchantName(rawText);
       final amount = RegexHelper.extractAmount(rawText);
       final date = RegexHelper.extractDate(rawText);
+      final trace = AmountDebugTracer.trace(rawText);
+
+      if (kDebugMode) {
+        debugPrint('===============================================================');
+        debugPrint('[DEBUG OCR] THÔNG TIN PHÂN TÍCH OCR & SỐ TIỀN:');
+        debugPrint('---------------------------------------------------------------');
+        debugPrint('(a) TOÀN BỘ VĂN BẢN OCR THÔ (TỪNG DÒNG CÓ ĐÁNH SỐ DÒNG):');
+        final rawLines = rawText.split('\n');
+        for (int i = 0; i < rawLines.length; i++) {
+          debugPrint('  [Dòng ${(i + 1).toString().padLeft(2, '0')}] ${rawLines[i]}');
+        }
+        debugPrint('---------------------------------------------------------------');
+        debugPrint('(b) ẢNH ĐÃ CROP ĐANG ĐƯỢC ĐƯA VÀO OCR:');
+        debugPrint('  - Đường dẫn ảnh sau crop: $path');
+        if (widget.debugOriginalPath != null) {
+          debugPrint('  - Đường dẫn ảnh gốc trước crop: ${widget.debugOriginalPath}');
+        }
+        debugPrint('---------------------------------------------------------------');
+        debugPrint('(c) DANH SÁCH CÁC ỨNG VIÊN SỐ TIỀN:');
+        if (trace.candidates.isEmpty) {
+          debugPrint('  (Không tìm thấy ứng viên số tiền nào)');
+        } else {
+          for (final c in trace.candidates) {
+            final amtStr = c.amount != null
+                ? '${NumberFormat('#,###').format(c.amount)} đ'
+                : 'Không có';
+            debugPrint('  - Dòng ${c.lineNumber} ("${c.lineText}"): '
+                'Số tiền=$amtStr | Trạng thái=${c.status} | Lý do=${c.reason}');
+          }
+        }
+        debugPrint('---------------------------------------------------------------');
+        debugPrint('(d) QUY TẮC ĐÃ CHỐT KẾT QUẢ:');
+        debugPrint('  - Quy tắc chốt: ${trace.chosenRule}');
+        debugPrint('  - Kết quả cuối cùng: ${trace.finalAmount != null ? "${NumberFormat('#,###').format(trace.finalAmount)} đ" : "null"}');
+        debugPrint('===============================================================');
+      }
 
       if (mounted) {
+        _rawOcrText = rawText;
+        _debugTrace = trace;
         if (merchant != null) {
           _merchantController.text = merchant;
         }
@@ -365,6 +410,10 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
                         }
                       },
                     ),
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 16),
+                      _buildDebugOcrSection(),
+                    ],
                     const SizedBox(height: 24),
 
                     // 3. Dưới cùng: Nút Chụp lại & Lưu giao dịch
@@ -410,6 +459,321 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
                 ),
               ),
             ),
+    );
+  }
+
+  Widget _buildDebugOcrSection() {
+    final rawLines = (_rawOcrText ?? '').split('\n');
+    final hasCroppedImage =
+        widget.imagePath != null && File(widget.imagePath!).existsSync();
+    final hasOriginalImage = widget.debugOriginalPath != null &&
+        File(widget.debugOriginalPath!).existsSync();
+
+    return Card(
+      color: Colors.amber.shade50,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.amber.shade400, width: 1.5),
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: true,
+        leading: const Icon(Icons.bug_report, color: Colors.deepOrange),
+        title: const Text(
+          'Debug OCR',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+            color: Colors.deepOrange,
+          ),
+        ),
+        subtitle: const Text(
+          'Xem OCR thô, ảnh crop, ứng viên số tiền & quy tắc chốt',
+          style: TextStyle(fontSize: 12, color: Colors.black87),
+        ),
+        childrenPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        children: [
+          // (a) Toàn bộ văn bản OCR thô, từng dòng có đánh số dòng
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '(a) Toàn bộ văn bản OCR thô (đánh số dòng):',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade900,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade900,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: rawLines.isEmpty ||
+                    _rawOcrText == null ||
+                    _rawOcrText!.trim().isEmpty
+                ? const Text(
+                    '(Chưa có văn bản OCR)',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontFamily: 'monospace',
+                    ),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (int i = 0; i < rawLines.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Text(
+                            '${(i + 1).toString().padLeft(2, '0')}: ${rawLines[i]}',
+                            style: const TextStyle(
+                              color: Colors.lightGreenAccent,
+                              fontSize: 12.5,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+          ),
+          const SizedBox(height: 16),
+
+          // (b) Ảnh ĐÃ CROP đang được đưa vào OCR
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '(b) Ảnh ĐÃ CROP đang được đưa vào OCR:',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade900,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Đường dẫn ảnh sau crop:\n${widget.imagePath ?? "Không có"}',
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.black87,
+              fontFamily: 'monospace',
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (hasCroppedImage)
+            Container(
+              height: 200,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                border:
+                    Border.all(color: Colors.deepOrange.shade300, width: 2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.file(
+                  File(widget.imagePath!),
+                  fit: BoxFit.contain,
+                ),
+              ),
+            )
+          else
+            const Text(
+              '(Không tìm thấy file ảnh crop)',
+              style: TextStyle(color: Colors.red),
+            ),
+
+          if (hasOriginalImage) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Ảnh GỐC trước crop (để so sánh):',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Đường dẫn:\n${widget.debugOriginalPath}',
+              style: const TextStyle(
+                fontSize: 11,
+                color: Colors.black87,
+                fontFamily: 'monospace',
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              height: 180,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.blueGrey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(7),
+                child: Image.file(
+                  File(widget.debugOriginalPath!),
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+
+          // (c) Danh sách các ứng viên số tiền (dòng, giá trị, lý do được chọn/loại)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '(c) Danh sách các ứng viên số tiền:',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade900,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (_debugTrace == null || _debugTrace!.candidates.isEmpty)
+            const Text(
+              '(Không có ứng viên số tiền nào)',
+              style: TextStyle(fontStyle: FontStyle.italic),
+            )
+          else
+            Column(
+              children: _debugTrace!.candidates.map((c) {
+                final isChosen = c.status == 'ĐƯỢC CHỌN';
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: isChosen ? Colors.green.shade50 : Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isChosen ? Colors.green : Colors.grey.shade300,
+                      width: isChosen ? 1.5 : 1.0,
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isChosen ? Colors.green : Colors.grey.shade400,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          c.status,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Dòng ${c.lineNumber}: "${c.lineText}"',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Giá trị: ${c.amount != null ? "${NumberFormat('#,###').format(c.amount)} VNĐ" : "Không có"}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: isChosen
+                                    ? Colors.green.shade800
+                                    : Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Lý do: ${c.reason}',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          const SizedBox(height: 16),
+
+          // (d) Quy tắc đã chốt kết quả
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '(d) Quy tắc đã chốt kết quả:',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade900,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blue.shade400, width: 1.5),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.check_circle,
+                        color: Colors.blue, size: 20),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _debugTrace?.chosenRule ?? 'Chưa xác định quy tắc',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13.5,
+                          color: Colors.blueAccent,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Số tiền cuối cùng: ${_debugTrace?.finalAmount != null ? "${NumberFormat('#,###').format(_debugTrace!.finalAmount)} VNĐ" : "Chưa có"}',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

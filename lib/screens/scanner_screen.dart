@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -137,8 +138,21 @@ class _ScannerScreenState extends State<ScannerScreen>
     try {
       final XFile originalFile = await _controller!.takePicture();
 
-      // Cắt ảnh thật theo khung ngắm chạy trong Isolate để không giật UI
+      // Ở chế độ debug, lưu thêm ảnh GỐC trước crop vào thư mục tạm để so sánh với ảnh sau crop
       final tempDir = await getTemporaryDirectory();
+      String? debugOriginalPath;
+      if (kDebugMode) {
+        final copyPath =
+            '${tempDir.path}/debug_original_before_crop_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        await File(originalFile.path).copy(copyPath);
+        debugOriginalPath = copyPath;
+        debugPrint('===============================================================');
+        debugPrint('[DEBUG MODE] ĐÃ LƯU ẢNH GỐC TRƯỚC CROP VÀO THƯ MỤC TẠM:');
+        debugPrint('ĐƯỜNG DẪN ẢNH GỐC: $debugOriginalPath');
+        debugPrint('===============================================================');
+      }
+
+      // Cắt ảnh thật theo khung ngắm chạy trong Isolate để không giật UI
       final croppedPath =
           '${tempDir.path}/cropped_receipt_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
@@ -169,7 +183,10 @@ class _ScannerScreenState extends State<ScannerScreen>
         Navigator.pushNamed(
           context,
           ReviewTransactionScreen.routeName,
-          arguments: resultImagePath,
+          arguments: {
+            'imagePath': resultImagePath,
+            'debugOriginalPath': debugOriginalPath,
+          },
         );
       }
     } catch (e) {

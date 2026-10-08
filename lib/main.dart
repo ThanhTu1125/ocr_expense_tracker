@@ -40,11 +40,20 @@ class MyApp extends StatelessWidget {
       },
       onGenerateRoute: (settings) {
         if (settings.name == ReviewTransactionScreen.routeName) {
-          final imagePath = settings.arguments is String
-              ? settings.arguments as String
-              : null;
+          String? imagePath;
+          String? debugOriginalPath;
+          if (settings.arguments is String) {
+            imagePath = settings.arguments as String;
+          } else if (settings.arguments is Map) {
+            final args = settings.arguments as Map;
+            imagePath = args['imagePath'] as String?;
+            debugOriginalPath = args['debugOriginalPath'] as String?;
+          }
           return MaterialPageRoute(
-            builder: (context) => ReviewTransactionScreen(imagePath: imagePath),
+            builder: (context) => ReviewTransactionScreen(
+              imagePath: imagePath,
+              debugOriginalPath: debugOriginalPath,
+            ),
             settings: settings,
           );
         }
