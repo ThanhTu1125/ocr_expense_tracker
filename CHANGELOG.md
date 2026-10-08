@@ -2,6 +2,25 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Giai đoạn 1] Sửa lỗi logic dữ liệu RegexHelper - 2026-10-08 17:05
+### Đã thực hiện
+- Phân cấp từ khóa `RegexHelper.extractAmount` thành 2 mức:
+  - Mạnh: `tong cong`, `tong thanh toan`, `tien phai tra`, `phai thanh toan`, `grand total`, `total due`.
+  - Yếu: `thanh tien`, `tong tien`, `total`, `amount`, `thanh toan`, `cong tien`.
+  - Quy tắc: Quét dòng khớp từ khóa mạnh lấy dòng cuối cùng có số; chỉ khi không có mới xét từ khóa yếu (cũng lấy dòng cuối cùng có số).
+- Bổ sung bộ lọc dòng tiêu đề cột `_isColumnHeader`: phát hiện các dòng chứa "thành tiền" cùng "đơn giá", "sl", "tên món", "số lượng", hoặc không có số, ngăn chặn hoàn toàn việc nhận nhầm làm tổng tiền hoặc nhìn sang dòng kế tiếp.
+- Bổ sung bộ lọc loại trừ `_isExcludedLine` khỏi ứng viên tổng tiền: `sub total`, `subtotal`, `tam tinh`, `giam gia`, `discount`, `khuyen mai`, `vat`, `thue`, `tien khach dua`, `tien mat`, `cash`, `tien thoi`, `thoi lai`, `change`, `so luong`.
+- Nâng cấp `RegexHelper.extractDate`:
+  - Hỗ trợ định dạng năm 2 chữ số: `dd/MM/yy`, `dd-MM-yy`, `dd.MM.yy` (yy -> 20yy).
+  - Xác thực ngày thật bằng cách so sánh lại `year/month/day` với kết quả `DateTime` của Dart để ngăn chặn overflow (loại bỏ `31/02`, `31/04`).
+  - Tự động trích xuất và gán giờ `HH:mm[:ss]` cùng dòng hoặc dòng kế bên vào `DateTime`.
+- Bổ sung các bài kiểm thử mới trong `test/regex_helper_test.dart` (tổng 37 tests, 100% pass).
+### File ảnh hưởng
+- `lib/utils/regex_helper.dart`
+- `test/regex_helper_test.dart`
+- `CHANGELOG.md`
+- `DEV_HISTORY.md`
+
 ## [Hotfix Ultimate] Thuật toán chuẩn hóa tiếng Việt và Heuristic Toán học cho Regex - 2026-10-06 23:26
 ### Đã thực hiện
 - Xây dựng bộ "Kính cận OCR" (`_normalizeText`) trong `lib/utils/regex_helper.dart`:

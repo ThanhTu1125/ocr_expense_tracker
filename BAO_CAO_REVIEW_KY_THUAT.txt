@@ -1,0 +1,443 @@
+================================================================================
+          BÁO CÁO ĐÁNH GIÁ VÀ REVIEW KỸ THUẬT TOÀN DIỆN
+                     DỰ ÁN: OCR EXPENSE TRACKER
+================================================================================
+
+Thời gian đánh giá: 08/10/2026
+Vai trò: Reviewer Kỹ thuật độc lập
+Phiên bản dự án: 1.0.0+1
+Nền tảng kiểm tra: Flutter (Android) / Dart 3.13.4 / Flutter SDK 3.47.5
+Phương pháp: Phân tích mã nguồn tĩnh (Static Code Analysis), đối soát đường dẫn
+             và dòng lệnh thực tế (Grep, Git, Flutter Analyze, Flutter Test).
+Trạng thái mã nguồn: Kiểm tra trực tiếp trên code đang hoạt động, không đoán định.
+
+
+================================================================================
+MỤC LỤC BÁO CÁO REVIEW
+================================================================================
+1. BẢNG TỔNG HỢP KẾT LUẬN VÀ DẪN CHỨNG (A1 - F2)
+2. CHI TIẾT ĐÁNH GIÁ TỪNG HẠNG MỤC
+   - Nhóm A: Camera & Crop
+   - Nhóm B: OCR & Regex Heuristics
+   - Nhóm C: Cơ sở dữ liệu & Vòng đời giao dịch
+   - Nhóm D: Đồ họa CustomPainter & Trực quan hóa
+   - Nhóm E: Quản lý Kho lưu trữ (Repo) & Dependencies
+   - Nhóm F: Kiểm thử tự động (Quality Assurance)
+3. DANH SÁCH CÁC ĐIỂM KHÁC BIỆT GIỮA TÀI LIỆU VÀ MÃ NGUỒN THỰC TẾ
+4. TOP 5 VẤN ĐỀ NGHIÊM TRỌNG NHẤT (XẾP THEO MỨC ĐỘ ẢNH HƯỞNG)
+
+
+================================================================================
+1. BẢNG TỔNG HỢP KẾT LUẬN VÀ DẪN CHỨNG (A1 - F2)
+================================================================================
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+MÃ  | NỘI DUNG YÊU CẦU                                     | KẾT LUẬN   | BẰNG CHỨNG (FILE:DÒNG)                     | GHI CHÚ TÓM TẮT
+----------------------------------------------------------------------------------------------------------------------------------------------------
+A1  | Tap-to-focus trên camera preview                      | KHÔNG CÓ   | lib/screens/scanner_screen.dart:163-166   | CameraPreview bọc Center, không có GestureDetector, không gọi setFocusPoint/setExposurePoint.
+A2  | Crop ảnh thật theo khung ngắm trước khi OCR           | KHÔNG CÓ   | lib/screens/scanner_screen.dart:95-101    | Khung ngắm chỉ là overlay vẽ Canvas; ảnh chụp nguyên bản toàn khung được truyền thẳng sang OCR.
+    |                                                       |            | lib/screens/scanner_screen.dart:184-189   |
+    |                                                       |            | lib/services/ocr_service.dart:7-9         |
+A3  | Nút Flash hoạt động qua setFlashMode                  | CÓ         | lib/screens/scanner_screen.dart:68-81     | Chuyển đổi FlashMode.off và FlashMode.torch bằng _controller!.setFlashMode() ở AppBar và cạnh Shutter.
+    |                                                       |            | lib/screens/scanner_screen.dart:134-138   |
+    |                                                       |            | lib/screens/scanner_screen.dart:266-273   |
+----------------------------------------------------------------------------------------------------------------------------------------------------
+B1  | extractAmount: Từ khóa ưu tiên, Early Return & cột    | CÓ         | lib/utils/regex_helper.dart:2-13          | "thanh tien", "total", "amount" chung danh sách _priorityKeywords; Early Return ngay dòng đầu tiên.
+    | "Thành tiền" ở từng món                               |            | lib/utils/regex_helper.dart:54-64         | HỆ QUẢ: Hóa đơn có cột "Thành tiền" ở từng món sẽ trả về GIÁ CỦA MÓN ĐẦU TIÊN, không phải tổng bill.
+B2  | Loại trừ dòng subtotal, giảm giá, VAT, tiền khách/thối | KHÔNG CÓ   | lib/utils/regex_helper.dart:110-161       | _isGarbageLine chỉ lọc MST, số bàn, số ĐT. Không lọc subtotal, giảm giá, VAT, tiền khách/thối.
+    |                                                       |            | lib/utils/regex_helper.dart:10            | Từ khóa "total" thậm chí còn khớp nhầm dòng "sub total".
+B3  | _normalizeText chỉ áp dụng so khớp từ khóa hay cả     | CÓ         | lib/utils/regex_helper.dart:58-61         | _normalizeText chỉ tạo biến normalized để check từ khóa; khi parse số gọi _findLargestAmountInLine(line) gốc.
+    | chuỗi parse số tiền                                   |            | lib/utils/regex_helper.dart:81            |
+B4  | extractDate: Hỗ trợ dd/MM/yy, lấy giờ, check ngày/tháng| KHÔNG CÓ   | lib/utils/regex_helper.dart:168, 181      | Regex bắt buộc \d{4} (không nhận dd/MM/yy). Không lấy giờ. Kiểm tra ngày chỉ check thô day <= 31.
+    |                                                       |            | lib/utils/regex_helper.dart:332-341       | Dart DateTime(year, 2, 31) tự overflow thành 03/03 mà không bị loại bỏ.
+B5  | Đo thời gian chạy OCR bằng Stopwatch                  | KHÔNG CÓ   | lib/services/ocr_service.dart:3-15        | Không có Stopwatch, không đo hoặc log/hiển thị thời gian chạy OCR.
+    |                                                       |            | lib/screens/review_transaction_screen.dart:53-100 |
+B6  | Dữ liệu hóa đơn mẫu hoặc script đánh giá accuracy     | KHÔNG CÓ   | pubspec.yaml:70-74                        | Không có thư mục assets chứa ảnh hóa đơn thật, không có benchmark script; chỉ có chuỗi text mock trong test.
+    |                                                       |            | test/regex_helper_test.dart:5-130         |
+----------------------------------------------------------------------------------------------------------------------------------------------------
+C1  | Tạo thumbnail ảnh & hiển thị thumbnail ở danh sách    | KHÔNG CÓ   | lib/screens/review_transaction_screen.dart:134-142 | Chỉ copy file gốc qua File.copy(), không resize/nén. Dashboard hiển thị CircleAvatar icon, không có thumbnail.
+    |                                                       |            | lib/screens/dashboard_screen.dart:380-383 |
+C2  | Chức năng sửa (update) & xóa (delete) trong DB và UI  | KHÔNG CÓ   | lib/services/database_service.dart:1-118  | DatabaseService chỉ có saveTransaction (put). UI không có nút sửa/xóa, không có logic xóa file ảnh đi kèm.
+    |                                                       |            | lib/screens/dashboard_screen.dart:363-410 |
+C3  | Lọc giao dịch theo danh mục hoặc khoảng thời gian     | MỘT PHẦN   | lib/services/database_service.dart:69-102 | Service có getTransactionsByWeek (lọc tuần), nhưng không có lọc theo danh mục cụ thể; UI không có filter chip.
+    |                                                       |            | lib/screens/dashboard_screen.dart:330-410 |
+C4  | useMock: Âm thầm lưu RAM khi lỗi Isar, không cảnh báo | CÓ         | lib/services/database_service.dart:39-41  | catch (_) khi mở Isar nuốt lỗi và set useMock = true. Dữ liệu lưu vào RAM mockTransactions, tắt app mất sạch,
+    |                                                       |            | lib/services/database_service.dart:47-50  | hoàn toàn không có bất kỳ thông báo/cảnh báo nào hiển thị cho người dùng.
+C5  | Màn hình gọi trực tiếp DatabaseService singleton      | CÓ         | lib/screens/dashboard_screen.dart:33-36   | Gọi trực tiếp DatabaseService.instance, không thông qua Repository pattern hay State Management Provider.
+    |                                                       |            | lib/screens/review_transaction_screen.dart:154 |
+----------------------------------------------------------------------------------------------------------------------------------------------------
+D1  | PieChart & BarChart có tương tác chạm / tooltip       | KHÔNG CÓ   | lib/widgets/pie_chart_painter.dart:4-145  | Không override hitTest(), không bọc GestureDetector, không có tooltip, không có hiệu ứng chọn lát/cột.
+    |                                                       |            | lib/widgets/bar_chart_painter.dart:4-130  |
+    |                                                       |            | lib/screens/dashboard_screen.dart:221,267 |
+D2  | Legend, phần trăm %, nhãn giá trị cột, tổng tiền tâm  | MỘT PHẦN   | lib/screens/dashboard_screen.dart:279-319 | Có Legend danh mục bên cạnh; KHÔNG có phần trăm %, KHÔNG có giá trị trên đầu cột, KHÔNG có tổng tiền ở tâm.
+    |                                                       |            | lib/widgets/pie_chart_painter.dart:80-99  |
+    |                                                       |            | lib/widgets/bar_chart_painter.dart:98-118 |
+D3  | Chuyển tuần (tuần trước / sau)                        | KHÔNG CÓ   | lib/screens/dashboard_screen.dart:35      | Lấy cố định theo DateTime.now(), UI không có nút điều hướng tuần trước/tuần sau.
+    |                                                       |            | lib/screens/dashboard_screen.dart:56-64   |
+D4  | shouldRepaint được cài đặt đúng                       | CÓ         | lib/widgets/pie_chart_painter.dart:138-145| So sánh đầy đủ progress, strokeWidth, barColor... kích hoạt render chính xác theo TweenAnimationBuilder.
+    |                                                       |            | lib/widgets/bar_chart_painter.dart:122-130|
+----------------------------------------------------------------------------------------------------------------------------------------------------
+E1  | README.md: Mô tả, ảnh chụp, lệnh build, path cá nhân  | MỘT PHẦN   | README.md:1-18                            | Có file README.md ở root nhưng là template rỗng mặc định của Flutter, không có ảnh, không có lệnh build/path.
+E2  | Package provider và cupertino_icons có được dùng không| KHÔNG CÓ   | pubspec.yaml:36,40                        | Grep lib/ ra 0 kết quả sử dụng provider (chỉ có path_provider) và 0 kết quả cho cupertino_icons. Dependency thừa!
+E3  | applicationId / namespace còn là com.example.*        | CÓ         | android/app/build.gradle.kts:8, 19        | Vẫn giữ nguyên com.example.ocr_expense_tracker.
+E4  | File .gitignore phù hợp & commit transaction.g.dart   | CÓ         | .gitignore:1-52                           | Có .gitignore chuẩn; file lib/models/transaction.g.dart đã được commit và theo dõi trong Git.
+    |                                                       |            | git ls-files                              |
+E5  | git log --oneline: Số commit và chất lượng message    | CÓ         | git log --oneline                         | Có đúng 9 commits; commit message rất chuẩn theo quy ước Conventional Commits (chore, feat, fix).
+E6  | Quyền camera cho iOS & Nền tảng thực tế hỗ trợ        | KHÔNG CÓ   | Thư mục gốc dự án                         | Không có thư mục ios/ và Info.plist. Dự án khởi tạo với --platforms android, thực tế chỉ hỗ trợ duy nhất Android.
+    |                                                       | (iOS)      | DEV_HISTORY.md:458                        |
+E7  | minSdk hiện tại & Mâu thuẫn plugin camera, mlkit      | CÓ         | android/app/build.gradle.kts:22           | minSdk dùng flutter.minSdkVersion (tương đương API 21), khớp chuẩn với yêu cầu của camera và mlkit, không mâu thuẫn.
+E8  | File app-release.apk hoặc release/video demo          | KHÔNG CÓ   | build/app/outputs/flutter-apk/            | Thư mục output chỉ có app-debug.apk (184 MB); không có app-release.apk, không có thư mục release/ hay video demo.
+----------------------------------------------------------------------------------------------------------------------------------------------------
+F1  | Chạy flutter analyze & flutter test, kết quả thật     | CÓ         | Terminal thực thi                         | • flutter test: 28/28 tests passed (100% pass).
+    |                                                       |            |                                           | • flutter analyze: 7 issues found (toàn bộ là info avoid_print trong scratch\test_debug.dart).
+F2  | Test cho _isGarbageLine, extractDate dd/MM/yy & cột   | KHÔNG CÓ   | test/regex_helper_test.dart:5-167         | Không có test riêng cho _isGarbageLine, không có test định dạng dd/MM/yy, không có test hóa đơn lặp cột "Thành tiền".
+    | "Thành tiền" ở từng món                               |            |                                           |
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+================================================================================
+2. CHI TIẾT ĐÁNH GIÁ TỪNG HẠNG MỤC
+================================================================================
+
+--------------------------------------------------------------------------------
+A. CAMERA & CROP
+--------------------------------------------------------------------------------
+- A1. Tap-to-focus:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: lib/screens/scanner_screen.dart:163-166.
+  + Chi tiết: Widget CameraPreview chỉ được bọc trong một Center đơn giản, không được
+    bọc trong GestureDetector để bắt tọa độ chạm của người dùng, và controller không
+    gọi bất kỳ phương thức nào như setFocusPoint() hay setExposurePoint().
+
+- A2. Crop ảnh theo khung ngắm trước khi OCR:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: lib/screens/scanner_screen.dart:95-101; 184-189; lib/services/ocr_service.dart:7-9.
+  + Chi tiết: Khung ngắm Viewfinder thực chất chỉ là một lớp vẽ CustomPainter đè lên
+    trên CameraPreview để hướng dẫn người dùng bằng mắt. Khi nhấn chụp ảnh, file ảnh
+    được lưu thẳng từ _controller!.takePicture() dưới dạng toàn cảnh (Full Frame) và
+    được truyền nguyên vẹn sang OcrService.extractText(). Không có bất kỳ logic crop
+    nào bằng thư viện image hay dart:ui.
+
+- A3. Bật/tắt đèn Flash qua setFlashMode:
+  + Kết luận: CÓ.
+  + Bằng chứng: lib/screens/scanner_screen.dart:68-81; 134-138; 266-273.
+  + Chi tiết: Hàm _toggleFlash() kiểm tra trạng thái _isFlashOn để gọi
+    _controller!.setFlashMode(newMode) chuyển đổi giữa FlashMode.off và FlashMode.torch.
+    Nút điều khiển được gắn ở cả AppBar và cạnh nút chụp Shutter.
+
+--------------------------------------------------------------------------------
+B. OCR & REGEX HEURISTICS
+--------------------------------------------------------------------------------
+- B1. extractAmount: Từ khóa ưu tiên, Early Return và kịch bản cột "Thành tiền":
+  + Kết luận: CÓ.
+  + Bằng chứng: lib/utils/regex_helper.dart:2-13; 54-64.
+  + Chi tiết: Danh sách _priorityKeywords gom chung các từ khóa: 'tong cong', 'thanh tien',
+    'tong tien', 'tong thanh toan', 'thanh toan', 'tien phai tra', 'phai thanh toan',
+    'total', 'amount', 'cong tien'. Thuật toán duyệt từng dòng từ trên xuống và thực hiện
+    Early Return ngay tại dòng đầu tiên tìm thấy số.
+  + Mô phỏng: Xét hóa đơn có bảng món:
+      Món 1: Gà rán (Thành tiền: 35.000)
+      Món 2: Nước ngọt (Thành tiền: 15.000)
+      Tổng cộng: 50.000
+    Dòng món đầu tiên chứa cụm từ "Thành tiền", khớp với _priorityKeywords và chứa số 35.000.
+    Thuật toán sẽ return ngay 35.000 mà không duyệt tiếp. Kết quả trả về là GIÁ CỦA MÓN
+    ĐẦU TIÊN, hoàn toàn sai lệch so với tổng bill thực tế (50.000).
+
+- B2. Loại trừ các dòng phụ (subtotal, giảm giá, VAT, tiền khách đưa, tiền thối):
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: lib/utils/regex_helper.dart:110-161; 10.
+  + Chi tiết: Hàm _isGarbageLine chỉ lọc URL, ký tự phân cách (---), số điện thoại, MST,
+    số bàn, thu ngân và ngày giờ độc lập. Các dòng như "sub total", "giảm giá", "VAT",
+    "tiền khách đưa", "tiền thối" không bị loại bỏ. Thậm chí nếu dòng có chữ "sub total",
+    nó sẽ bị khớp nhầm bởi từ khóa "total" tại dòng 10!
+
+- B3. Phạm vi áp dụng của _normalizeText (0 -> o, q -> o):
+  + Kết luận: CÓ.
+  + Bằng chứng: lib/utils/regex_helper.dart:58-61; 81.
+  + Chi tiết: _normalizeText chỉ được dùng để tạo chuỗi trung gian `normalized` phục vụ việc
+    so khớp xem dòng có chứa từ khóa ưu tiên hay không. Khi bóc tách con số thực tế, hàm
+    truyền chuỗi `line` gốc vào `_findLargestAmountInLine(line)`, giữ nguyên các chữ số
+    ban đầu để parse số chính xác.
+
+- B4. Khả năng xử lý ngày tháng của extractDate:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: lib/utils/regex_helper.dart:168; 181; 332-341.
+  + Chi tiết:
+    1. Năm 2 chữ số (dd/MM/yy): Cả 2 biểu thức regex đều bắt buộc \d{4}, không nhận năm 2 chữ số.
+    2. Lấy giờ: Chỉ bóc tách ngày/tháng/năm, giờ mặc định là 00:00:00.
+    3. Kiểm tra ngày hợp lệ theo tháng: Hàm _createValidDate chỉ kiểm tra thô `day <= 31`.
+       Trong ngôn ngữ Dart, constructor `DateTime(year, month, day)` không ném ngoại lệ khi
+       ngày vượt quá số ngày trong tháng mà tự động tràn (overflow). Ví dụ: DateTime(2026, 2, 31)
+       sẽ tự biến thành ngày 03/03/2026. Do đó, các ngày vô lý như 31/02 không bị loại bỏ.
+
+- B5. Đo thời gian OCR bằng Stopwatch:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: lib/services/ocr_service.dart:3-15; lib/screens/review_transaction_screen.dart:53-100.
+  + Chi tiết: Không có đối tượng Stopwatch hay DateTime.difference() nào được sử dụng trong
+    quá trình OCR; thời gian xử lý không được ghi log và không hiển thị trên giao diện.
+
+- B6. Dữ liệu hóa đơn mẫu và script đánh giá:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: pubspec.yaml:70-74; test/regex_helper_test.dart:5-130.
+  + Chi tiết: Thư mục assets bị comment trong pubspec.yaml và không tồn tại thư mục ảnh mẫu
+    nào trong kho lưu trữ. Không có script tính toán độ chính xác (Precision/Recall). Toàn bộ
+    dữ liệu kiểm thử chỉ là các chuỗi String hardcoded trong unit test.
+
+--------------------------------------------------------------------------------
+C. CƠ SỞ DỮ LIỆU & VÒNG ĐỜI GIAO DỊCH
+--------------------------------------------------------------------------------
+- C1. Tạo thumbnail ảnh và hiển thị ở danh sách giao dịch:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: lib/screens/review_transaction_screen.dart:134-142; lib/screens/dashboard_screen.dart:380-383.
+  + Chi tiết: Ứng dụng chỉ sao chép nguyên trạng tệp ảnh gốc sang thư mục Documents bằng
+    File.copy(), không hề nén hay tạo ảnh thumbnail nhỏ hơn. Tại màn hình Dashboard, mỗi
+    giao dịch chỉ hiển thị CircleAvatar chứa Icon của danh mục, không hiển thị ảnh thumbnail.
+
+- C2. Chức năng cập nhật (Update) và xóa (Delete) giao dịch:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: lib/services/database_service.dart:1-118; lib/screens/dashboard_screen.dart:363-410.
+  + Chi tiết: DatabaseService chỉ có hàm saveTransaction (ghi đè put), hoàn toàn không có hàm
+    xóa hay sửa. Trên giao diện Dashboard, các item trong danh sách không có nút xóa/sửa, không
+    có sự kiện onTap, và không có logic xóa tệp ảnh trong bộ nhớ khi giao dịch bị hủy.
+
+- C3. Lọc giao dịch theo danh mục hoặc khoảng thời gian:
+  + Kết luận: MỘT PHẦN.
+  + Bằng chứng: lib/services/database_service.dart:69-102; lib/screens/dashboard_screen.dart:330-410.
+  + Chi tiết: DatabaseService có phương thức getTransactionsByWeek() để lọc các giao dịch trong
+    tuần, nhưng không có hàm lấy danh sách giao dịch theo một danh mục cụ thể. Trên giao diện UI,
+    danh sách "Giao dịch gần đây" hiển thị toàn bộ lịch sử, không có Filter Chip hay Dropdown
+    cho phép người dùng lọc theo tiêu chí nào.
+
+- C4. Cơ chế cờ useMock khi Isar Database gặp lỗi:
+  + Kết luận: CÓ.
+  + Bằng chứng: lib/services/database_service.dart:39-41; 47-50.
+  + Chi tiết: Trong hàm init(), khi Isar.open() gặp lỗi ngoại lệ, khối catch (_) nuốt lỗi và
+    âm thầm gán useMock = true mà không ném lỗi tiếp. Sau đó, saveTransaction() ghi trực tiếp
+    vào mảng RAM mockTransactions. Người dùng vẫn thao tác lưu bình thường nhưng khi thoát app,
+    toàn bộ dữ liệu bị mất trắng mà không có bất kỳ cảnh báo nào trên UI.
+
+- C5. Kiến trúc gọi DatabaseService từ UI màn hình:
+  + Kết luận: CÓ.
+  + Bằng chứng: lib/screens/dashboard_screen.dart:33-36; lib/screens/review_transaction_screen.dart:154.
+  + Chi tiết: Cả DashboardScreen và ReviewTransactionScreen đều truy cập thẳng vào thể hiện tĩnh
+    DatabaseService.instance (Singleton pattern), không tuân thủ kiến trúc phân tầng qua
+    Repository pattern hay Provider state management.
+
+--------------------------------------------------------------------------------
+D. ĐỒ HỌA CUSTOMPAINTER & TRỰC QUAN HÓA
+--------------------------------------------------------------------------------
+- D1. Tương tác chạm trên PieChartPainter và BarChartPainter:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: lib/widgets/pie_chart_painter.dart:4-145; lib/widgets/bar_chart_painter.dart:4-130;
+                lib/screens/dashboard_screen.dart:221-229; 267-275.
+  + Chi tiết: Cả hai lớp CustomPainter đều không override phương thức hitTest(). Tại Dashboard,
+    CustomPaint không được bọc trong GestureDetector, không hỗ trợ tooltip và không thể tương
+    tác chạm để chọn cột hoặc lát vành khuyên.
+
+- D2. Thành phần hiển thị trên biểu đồ (Legend, %, giá trị, tâm Donut):
+  + Kết luận: MỘT PHẦN.
+  + Bằng chứng: lib/screens/dashboard_screen.dart:279-319; lib/widgets/pie_chart_painter.dart:80-99;
+                lib/widgets/bar_chart_painter.dart:98-118.
+  + Chi tiết: Biểu đồ Donut có phần Legend hiển thị màu, tên danh mục và số tiền ở bên cạnh.
+    Tuy nhiên: KHÔNG có phần trăm (%), KHÔNG có nhãn giá trị hiển thị trên đầu các cột (chỉ có
+    nhãn thứ T2 - CN ở chân cột), và KHÔNG hiển thị tổng tiền ở tâm Donut khi có dữ liệu (tâm
+    Donut chỉ vẽ chữ "Chưa có dữ liệu" khi biểu đồ rỗng).
+
+- D3. Khả năng chuyển đổi tuần (tuần trước / tuần sau):
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: lib/screens/dashboard_screen.dart:35; 56-64; 183-235.
+  + Chi tiết: Dữ liệu tuần được tính toán cố định theo DateTime.now(). Thẻ biểu đồ trên Dashboard
+    không có nút điều hướng (Next / Previous week) hoặc bộ chọn lịch.
+
+- D4. Cài đặt phương thức shouldRepaint:
+  + Kết luận: CÓ.
+  + Bằng chứng: lib/widgets/pie_chart_painter.dart:138-145; lib/widgets/bar_chart_painter.dart:122-130.
+  + Chi tiết: Cả hai CustomPainter đều so sánh đầy đủ các thuộc tính cấu hình và giá trị tiến trình
+    `progress != oldDelegate.progress`, bảo đảm widget vẽ lại mượt mà khi TweenAnimationBuilder
+    thay đổi giá trị theo từng khung hình.
+
+--------------------------------------------------------------------------------
+E. QUẢN LÝ KHO LƯU TRỮ (REPO) & DEPENDENCIES
+--------------------------------------------------------------------------------
+- E1. Tệp README.md ở thư mục gốc:
+  + Kết luận: MỘT PHẦN.
+  + Bằng chứng: README.md:1-18.
+  + Chi tiết: Tệp README.md có tồn tại nhưng chỉ là nội dung mặc định do Flutter tự sinh
+    ("A new Flutter project", "A few resources to get you started..."). Hoàn toàn không có mô tả
+    tính năng, không có ảnh chụp màn hình, không có lệnh build và không chứa đường dẫn cá nhân.
+
+- E2. Tình trạng sử dụng của package provider và cupertino_icons:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: pubspec.yaml:36, 40; kết quả quét grep toàn bộ thư mục lib/.
+  + Chi tiết:
+    + package `provider`: 0 kết quả sử dụng (chỉ có `path_provider` được import).
+    + package `cupertino_icons`: 0 kết quả sử dụng.
+    Cả hai đều là dependencies dư thừa không được dùng trong mã nguồn.
+
+- E3. Định danh applicationId và namespace Android:
+  + Kết luận: CÓ.
+  + Bằng chứng: android/app/build.gradle.kts:8; 19.
+  + Chi tiết: Mã nguồn vẫn đang giữ nguyên tên mặc định ban đầu là `com.example.ocr_expense_tracker`,
+    chưa được cấu hình sang package ID riêng cho môi trường sản phẩm.
+
+- E4. Cấu hình tệp .gitignore và trạng thái commit của transaction.g.dart:
+  + Kết luận: CÓ.
+  + Bằng chứng: .gitignore:1-52; kết quả lệnh `git ls-files lib/models/transaction.g.dart`.
+  + Chi tiết: Tệp .gitignore có đầy đủ cấu hình chuẩn của Flutter. Tệp mã sinh Isar
+    `lib/models/transaction.g.dart` đã được commit đầy đủ và theo dõi trong Git repository.
+
+- E5. Đánh giá lịch sử Commit qua git log --oneline:
+  + Kết luận: CÓ.
+  + Bằng chứng: Lịch sử 9 commit trong Git.
+  + Chi tiết: Lịch sử commit rất sạch sẽ và chuyên nghiệp, đúng 9 commit tương ứng với từng giai
+    đoạn phát triển và các bản hotfix, tuân thủ chặt chẽ quy ước Conventional Commits
+    (chore: init project, feat: UI skeleton, feat: camera, feat: ocr, feat: isar, feat: canvas charts,
+    fix: regex hotfixes).
+
+- E6. Qấu hình quyền Camera cho iOS và nền tảng thực tế:
+  + Kết luận: KHÔNG CÓ (cho iOS) / CÓ (xác nhận chỉ hỗ trợ Android).
+  + Bằng chứng: Thư mục gốc dự án; DEV_HISTORY.md:458.
+  + Chi tiết: Kho lưu trữ không hề có thư mục `ios/`, không có tệp `Info.plist`. Dự án được khởi tạo
+    với cờ `--platforms android` và trên thực tế chỉ hỗ trợ duy nhất nền tảng Android.
+
+- E7. Phiên bản minSdk hiện tại và tính tương thích của plugin:
+  + Kết luận: CÓ.
+  + Bằng chứng: android/app/build.gradle.kts:22.
+  + Chi tiết: Cấu hình `minSdk = flutter.minSdkVersion`. Trong Flutter 3.47+, giá trị mặc định của
+    flutter.minSdkVersion là 21, hoàn toàn khớp với yêu cầu minSdk 21 của camera,
+    google_mlkit_text_recognition và isar_community_flutter_libs, không xảy ra xung đột khi build.
+
+- E8. Tệp app-release.apk, thư mục release hoặc video demo:
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: build/app/outputs/flutter-apk/.
+  + Chi tiết: Thư mục đầu ra chỉ có bản build `app-debug.apk` (184 MB), không có `app-release.apk`,
+    không có thư mục `release/` và không có video demo nào trong kho lưu trữ.
+
+--------------------------------------------------------------------------------
+F. KIỂM THỬ TỰ ĐỘNG (QUALITY ASSURANCE)
+--------------------------------------------------------------------------------
+- F1. Kết quả thực thi thực tế của flutter analyze và flutter test:
+  + Kết luận: CÓ.
+  + Bằng chứng: Log thực thi thực tế từ Terminal:
+    + Lệnh `flutter test`: Đạt **28/28 tests passed** (100% pass trong 1 giây).
+    + Lệnh `flutter analyze`: Báo **7 issues found** (exit code 1). Toàn bộ 7 issues này đều là
+      mức info `avoid_print` nằm trong tệp tạm `scratch\test_debug.dart`. Toàn bộ mã nguồn chính
+      trong `lib/` và `test/` hoàn toàn sạch lỗi (0 issues).
+
+- F2. Tồn tại các bài test đặc thù (_isGarbageLine, dd/MM/yy, lặp cột Thành tiền):
+  + Kết luận: KHÔNG CÓ.
+  + Bằng chứng: test/regex_helper_test.dart:5-167.
+  + Chi tiết:
+    + Không có test case riêng kiểm thử phương thức nội bộ `_isGarbageLine`.
+    + Không có test case kiểm thử định dạng năm 2 chữ số `dd/MM/yy`.
+    + Không có test case mô phỏng hóa đơn xuất hiện lặp lại từ "Thành tiền" ở từng món.
+
+
+================================================================================
+3. DANH SÁCH CÁC ĐIỂM KHÁC BIỆT GIỮA TÀI LIỆU VÀ MÃ NGUỒN THỰC TẾ
+================================================================================
+
+Trong quá trình đối soát giữa các tệp tài liệu (DEV_HISTORY.md, CHANGELOG.md,
+TONG_QUAN_CHI_TIET_DU_AN.txt) và mã nguồn thực tế, ghi nhận 5 điểm sai lệch sau:
+
+1. Thiết lập `minSdk` trong `android/app/build.gradle.kts`:
+   - Tài liệu ghi nhận: "Đã cấu hình đặt minSdk = 21 thay thế flutter.minSdkVersion".
+   - Thực tế trong code: Dòng 22 trong `android/app/build.gradle.kts` vẫn giữ nguyên cú pháp
+     nguyên bản: `minSdk = flutter.minSdkVersion`.
+
+2. Sự hiện diện của thư viện `provider` và `cupertino_icons`:
+   - Tài liệu ghi nhận: Liệt kê là các thư viện phụ thuộc phục vụ State Management và Icons.
+   - Thực tế trong code: Không có bất kỳ dòng code nào trong `lib/` import hoặc sử dụng hai
+     thư viện này (chỉ sử dụng `path_provider` và Material Icons).
+
+3. Nội dung tệp `README.md`:
+   - Tài liệu ghi nhận: Giới thiệu dự án như một sản phẩm hoàn thiện với tài liệu đầy đủ.
+   - Thực tế trong code: Tệp `README.md` ở thư mục gốc hoàn toàn là template mặc định ban đầu
+     do Flutter tạo ra, chưa được cập nhật nội dung dự án.
+
+4. Báo cáo phân tích tĩnh `flutter analyze`:
+   - Tài liệu ghi nhận: Khẳng định `flutter analyze đạt 0 issues found!`.
+   - Thực tế hiện tại: Lệnh `flutter analyze` báo `7 issues found` và trả về mã lỗi 1 do tệp
+     thử nghiệm `scratch/test_debug.dart` chứa các câu lệnh `print()`.
+
+5. Khái niệm Crop ảnh theo khung ngắm:
+   - Tài liệu ghi nhận: Dễ gây hiểu lầm rằng ảnh chụp được cắt cúp theo kính ngắm trước khi gửi OCR.
+   - Thực tế trong code: Hoàn toàn không có thuật toán crop; ảnh gửi sang OCR là ảnh toàn cảnh
+     nguyên bản chụp từ camera.
+
+
+================================================================================
+4. TOP 5 VẤN ĐỀ NGHIÊM TRỌNG NHẤT (XẾP THEO MỨC ĐỘ ẢNH HƯỞNG)
+================================================================================
+
+--------------------------------------------------------------------------------
+1. [MỨC ĐỘ: RẤT CAO] Âm thầm chuyển sang lưu RAM khi Isar DB lỗi (Nguy cơ mất dữ liệu)
+--------------------------------------------------------------------------------
+- Vị trí: `lib/services/database_service.dart:39-41, 47-50`
+- Bản chất lỗi:
+  Trong hàm `init()`, khi phương thức `Isar.open()` ném ngoại lệ (thường gặp khi thiết bị
+  thiếu quyền ghi, lỗi thư viện C++ native binary, hoặc tệp DB bị hỏng), khối `catch (_)`
+  âm thầm nuốt lỗi và gán cờ `useMock = true`. Khi đó, hàm `saveTransaction()` chỉ chèn đối
+  tượng vào mảng tạm thời `mockTransactions` trên bộ nhớ RAM.
+- Hậu quả thực tế:
+  Người dùng vẫn thực hiện chụp ảnh, điền form và bấm "Lưu giao dịch" với thông báo SnackBar
+  xanh "Lưu giao dịch thành công!". Tuy nhiên, ngay khi người dùng đóng ứng dụng hoặc hệ
+  điều hành giải phóng tiến trình, TOÀN BỘ DỮ LIỆU ĐÃ LƯU BỊ MẤT TRẮNG VĨNH VIỄN mà không có
+  bất kỳ cảnh báo lỗi nào xuất hiện trên màn hình.
+
+--------------------------------------------------------------------------------
+2. [MỨC ĐỘ: CAO] Bóc tách nhầm đơn giá món đầu tiên làm tổng tiền trên hóa đơn có cột "Thành tiền"
+--------------------------------------------------------------------------------
+- Vị trí: `lib/utils/regex_helper.dart:2-13, 54-64`
+- Bản chất lỗi:
+  Cụm từ "thanh tien" được đặt chung trong danh sách từ khóa ưu tiên `_priorityKeywords` ngang
+  hàng với "tong cong". Thuật toán quét tuần tự từ trên xuống và thực hiện Early Return ngay
+  ở dòng đầu tiên tìm thấy số.
+- Hậu quả thực tế:
+  Tại Việt Nam, hầu hết hóa đơn nhà hàng, siêu thị hoặc quán ăn đều in bảng danh mục món có
+  cột: `Tên món | SL | Đơn giá | Thành tiền`. Vì dòng món ăn đầu tiên có chứa chữ "Thành tiền",
+  thuật toán sẽ dừng lại ngay và gán số tiền của món ăn đầu tiên làm tổng chi tiêu của cả hóa đơn.
+  Ví dụ: Hóa đơn ăn uống 500.000 đ có món đầu tiên là "Trà đá: 5.000 đ" sẽ bị bóc tách thành 5.000 đ!
+
+--------------------------------------------------------------------------------
+3. [MỨC ĐỘ: CAO] Thiếu hoàn toàn các tính năng CRUD cơ bản (Không thể Sửa hoặc Xóa giao dịch)
+--------------------------------------------------------------------------------
+- Vị trí: `lib/services/database_service.dart:1-118`; `lib/screens/dashboard_screen.dart:363-410`
+- Bản chất lỗi:
+  `DatabaseService` chỉ hỗ trợ phương thức tạo mới `saveTransaction()`, hoàn toàn không có hàm
+  `updateTransaction()` hay `deleteTransaction()`. Trên giao diện Dashboard, các mục danh sách
+  không có nút xóa, không có thao tác vuốt để xóa (Dismissible), và không có trang chỉnh sửa.
+- Hậu quả thực tế:
+  Đối với một ứng dụng tài chính, nếu người dùng lỡ tay bấm lưu nhầm số tiền hoặc danh mục sai,
+  họ hoàn toàn không có cách nào sửa lại hoặc xóa bỏ bản ghi đó. Đồng thời, tệp ảnh hóa đơn tương
+  ứng trong thư mục Documents cũng bị kẹt lại vĩnh viễn, không có cơ chế dọn dẹp.
+
+--------------------------------------------------------------------------------
+4. [MỨC ĐỘ: TRUNG BÌNH] Dung lượng lưu trữ phình to không kiểm soát do copy nguyên ảnh gốc
+--------------------------------------------------------------------------------
+- Vị trí: `lib/screens/review_transaction_screen.dart:134-142`
+- Bản chất lỗi:
+  Ảnh chụp từ camera sau với thiết lập `ResolutionPreset.high` có dung lượng dao động từ 3MB đến
+  8MB mỗi bức. Mỗi lần bấm lưu, ứng dụng sao chép nguyên trạng tệp ảnh gốc sang thư mục Documents
+  vĩnh viễn mà không thực hiện nén (compress), thu nhỏ (resize) hay tạo ảnh thumbnail.
+- Hậu quả thực tế:
+  Danh sách giao dịch trên Dashboard thậm chí không hiển thị hình ảnh hóa đơn (chỉ hiển thị Icon
+  tròn danh mục). Nếu người dùng sử dụng ứng dụng để lưu 100 hóa đơn, dung lượng bộ nhớ trong của
+  thiết bị sẽ bị chiếm dụng khoảng 500MB đến 800MB một cách lãng phí.
+
+--------------------------------------------------------------------------------
+5. [MỨC ĐỘ: TRUNG BÌNH] Lỗi tràn ngày (overflow) trong DateTime của Dart dẫn đến sai lệch tháng
+--------------------------------------------------------------------------------
+- Vị trí: `lib/utils/regex_helper.dart:332-341`
+- Bản chất lỗi:
+  Hàm `_createValidDate` chỉ kiểm tra giới hạn thô sơ `day <= 31`. Trong Dart, hàm khởi tạo
+  `DateTime(year, month, day)` không ném ngoại lệ khi ngày vượt quá số ngày thực tế của tháng
+  mà tự động tính tràn sang tháng tiếp theo.
+- Hậu quả thực tế:
+  Khi camera chụp mờ và OCR nhận diện sai một chuỗi ngày không có thật (ví dụ `31/02/2026` hoặc
+  `31/04/2026`), Dart sẽ tự động chuyển đổi thành `03/03/2026` hoặc `01/05/2026`. Hóa đơn bị
+  hạch toán sai hẳn sang tháng kế tiếp mà hệ thống không phát hiện và không cảnh báo người dùng.
+
+================================================================================
+HẾT BÁO CÁO REVIEW KỸ THUẬT DỰ ÁN OCR EXPENSE TRACKER
+================================================================================

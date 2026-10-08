@@ -1,6 +1,67 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Giai đoạn 1] Sửa lỗi logic dữ liệu RegexHelper - 2026-10-08 17:05
+### Mục tiêu
+Phân cấp từ khóa mạnh/yếu cho bóc tách tổng tiền, loại trừ các dòng phụ (subtotal, thuế, giảm giá, tiền khách đưa/thối), loại bỏ dòng tiêu đề cột, hỗ trợ năm 2 số dd/MM/yy, validate ngày thật và trích xuất giờ giao dịch.
+
+### Các việc đã làm
+1. **Phân cấp từ khóa `extractAmount`**:
+   - Từ khóa mạnh: `tong cong`, `tong thanh toan`, `tien phai tra`, `phai thanh toan`, `grand total`, `total due`.
+   - Từ khóa yếu: `thanh tien`, `tong tien`, `total`, `amount`, `thanh toan`, `cong tien`.
+   - Ưu tiên từ khóa mạnh trước, lấy dòng khớp cuối cùng có số; nếu không có mới xét từ khóa yếu (cũng lấy dòng khớp cuối cùng).
+2. **Loại trừ dòng tiêu đề cột (`_isColumnHeader`)**:
+   - Phát hiện các dòng chứa "thanh tien" cùng "don gia", "sl", "ten mon", "so luong" hoặc không có số.
+   - Bỏ qua hoàn toàn, không xét làm ứng viên tổng tiền và không nhảy sang dòng kế tiếp.
+3. **Loại trừ dòng phụ (`_isExcludedLine`)**:
+   - Loại trừ khỏi ứng viên tổng tiền các dòng chứa: `sub total`, `subtotal`, `tam tinh`, `giam gia`, `discount`, `khuyen mai`, `vat`, `thue`, `tien khach dua`, `tien mat`, `cash`, `tien thoi`, `thoi lai`, `change`, `so luong`.
+4. **Giữ nguyên Heuristic Fallback**:
+   - Heuristic toán học `Max1 == Max2 + X` tiếp tục bảo toàn cho trường hợp hóa đơn không có từ khóa.
+5. **Nâng cấp `extractDate`**:
+   - Thêm regex khớp định dạng năm 2 chữ số `dd/MM/yy`, `dd-MM-yy`, `dd.MM.yy` (chuyển đổi `yy -> 20yy`).
+   - Hàm `_createValidDate` so sánh ngược lại `dt.year == year && dt.month == month && dt.day == day`, loại bỏ hoàn toàn hiện tượng overflow ngày của Dart (loại bỏ `31/02`, `31/04`).
+   - Hàm `_findTimeNearLine` trích xuất giờ `HH:mm[:ss]` cùng dòng hoặc dòng kế bên (trên/dưới) và gán vào `DateTime`.
+6. **Bổ sung Unit Test**:
+   - Thêm 9 bài kiểm thử mới cho các trường hợp: tiêu đề cột, nhiều dòng thành tiền, dòng phụ subtotal/giảm giá/VAT/tiền thối, ngày 31/02, năm 2 chữ số, trích xuất giờ cùng dòng và kế bên, lọc rác SĐT/MST/số bàn.
+7. **Kiểm tra chất lượng**:
+   - `flutter analyze`: 0 issues found!
+   - `flutter test`: 37/37 tests passed (100%).
+
+### Quyết định kỹ thuật
+- **Lấy dòng khớp cuối cùng**: Trên hóa đơn bán lẻ, dòng tổng kết luận luôn nằm ở cuối các bảng món và dòng tính toán trung gian.
+- **Tách biệt dòng phụ khỏi Fallback**: Các từ như `tien mat`, `tien thoi` chỉ bị loại trừ khỏi bước quét từ khóa để không cướp vị trí của tổng tiền, nhưng giá trị số của chúng vẫn được đưa vào bộ Heuristic toán học `Max1 == Max2 + X` khi cần thiết.
+
+---
+
+## [Hotfix Filter Noise] Loại bỏ số điện thoại, siêu dữ liệu hóa đơn và tối ưu Heuristic bóc tách tổng tiền - 2026-10-08 00:20
+### Mục tiêu
+Khắc phục lỗi nhận diện nhầm số điện thoại bàn của quán (`DT: 9407863-8259956` -> `9407863`) thành tổng tiền thay vì con số chính xác `537.000` trên hóa đơn Quán Ăn Thiên Tân.
+
+### Các việc đã làm
+1. **Bổ sung bộ lọc rác & siêu dữ liệu đa tầng (`_isGarbageLine`) trong `lib/utils/regex_helper.dart`**:
+   - Nhận diện và bỏ qua các dòng thông tin liên lạc / số điện thoại (`dt:`, `tel:`, `hotline:`, `phone:`, số điện thoại bàn/di động).
+   - Nhận diện và loại trừ các định dạng số điện thoại gạch nối (`\d{6,11}[-/]\d{6,11}`).
+   - Bỏ qua các dòng mã số thuế (`mst`), số hóa đơn (`so hd`), số phiếu, số tài khoản (`stk`).
+   - Bỏ qua các dòng số bàn (`banso`, `table`), thu ngân (`cashier`, `mc #`).
+   - Bỏ qua các dòng ngày giờ độc lập không chứa từ khóa tiền tệ.
+2. **Siết chặt biểu thức nhận diện số tiền (`_parseNumericString`)**:
+   - Nếu chuỗi số thuần không có dấu phân cách hàng nghìn (`.` hoặc `,`) và có từ 7 chữ số trở lên (>= 1 triệu VND): chỉ chấp nhận nếu dòng ngữ cảnh có chứa đơn vị tiền tệ (`đ`, `vnd`) hoặc từ khóa tiền tệ. Ngăn chặn triệt để mọi số điện thoại hoặc mã số lọt vào danh sách tiền tệ.
+3. **Mở rộng từ khóa ưu tiên và hỗ trợ quét dòng tiếp theo**:
+   - Bổ sung các biến thể từ khóa: `tong thanh toan`, `thanh toan`, `tien phai tra`, `phai thanh toan`.
+   - Nếu dòng chứa từ khóa ưu tiên không có số tiền (ngắt dòng), tự động kiểm tra dòng kế tiếp.
+4. **Cải tiến nhận diện tên quán (`extractMerchantName`)**:
+   - Bổ sung từ khóa `quán ăn`, `quán` vào tập `merchantKeywords`.
+5. **Bổ sung Unit Test trong `test/regex_helper_test.dart`**:
+   - Test case thực tế hóa đơn Quán Ăn Thiên Tân (chứa đầy đủ header số điện thoại `DT: 9407863-8259956`, số bàn `BANSO: 47`, mã máy `MC #01 000887`): xác nhận bóc tách chính xác `537000.0`, tên quán `QUAN AN THIEN TAN`, ngày `13/11/2011`.
+   - Test case từ khóa ở dòng trên và số tiền ở dòng dưới.
+6. **Kiểm tra chất lượng**:
+   - `flutter analyze`: Đạt 0 issues found!
+   - `flutter test`: Đạt 28/28 tests passed (100%).
+
+### Quyết định kỹ thuật
+- **Lọc trước khi tính Heuristic**: Giữ cho cơ chế Heuristic Toán học (`Max1 == Max2 + X` / `Max1`) trong sạch, chỉ tiếp nhận các con số giá món và tiền thanh toán thực tế, loại bỏ hoàn toàn nhiễu từ phần Header (số điện thoại, ngày giờ, số bàn).
+- **Ràng buộc số trần 7+ chữ số**: Trong thực tế kế toán và hóa đơn bán lẻ tại Việt Nam, tiền triệu luôn có dấu phân cách hàng nghìn. Việc chặn các số trần 7+ chữ số không có phân cách giúp phòng ngừa mọi biến thể số điện thoại hoặc mã vạch.
+
 ## [Hotfix Ultimate] Thuật toán chuẩn hóa tiếng Việt và Heuristic Toán học cho Regex - 2026-10-06 23:26
 ### Mục tiêu
 Giải quyết triệt để nghịch lý nhận diện số tiền: phân biệt chính xác giữa hóa đơn siêu thị (in mờ, lỗi OCR ký tự số 0, có tiền khách đưa và tiền thối) và hóa đơn quán ăn (không có từ khóa tổng tiền tiêu chuẩn).
