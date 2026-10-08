@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +8,7 @@ import 'package:ocr_expense_tracker/controllers/transaction_controller.dart';
 import 'package:ocr_expense_tracker/main.dart';
 import 'package:ocr_expense_tracker/models/transaction.dart';
 import 'package:ocr_expense_tracker/screens/review_transaction_screen.dart';
+import 'package:ocr_expense_tracker/services/ocr_service.dart';
 import 'package:ocr_expense_tracker/testing/in_memory_transaction_repository.dart';
 import 'package:ocr_expense_tracker/widgets/bar_chart_painter.dart';
 import 'package:ocr_expense_tracker/widgets/pie_chart_painter.dart';
@@ -196,4 +199,74 @@ void main() {
     expect(returnedToPreviousScreen, isTrue);
     expect(find.text('Open Review'), findsOneWidget);
   });
+
+  testWidgets('Test 9: Debug OCR panel mặc định ẩn; nhấn giữ tiêu đề trong chế độ debug để bật/tắt', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TransactionController>.value(
+        value: controller,
+        child: const MaterialApp(
+          home: ReviewTransactionScreen(imagePath: null),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 1. Mặc định: không tìm thấy widget Debug OCR
+    expect(find.byKey(const Key('debug_ocr_panel')), findsNothing);
+
+    // 2. Nhấn giữ tiêu đề AppBar trong chế độ debug: panel xuất hiện
+    await tester.longPress(find.text('Review Transaction'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('debug_ocr_panel')), findsOneWidget);
+
+    // 3. Nhấn giữ tiêu đề lần nữa: panel ẩn
+    await tester.longPress(find.text('Review Transaction'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('debug_ocr_panel')), findsNothing);
+  });
+
+  testWidgets('Test 10: Cảnh báo không đọc được ngày vẫn hiển thị khi panel Debug OCR bị ẩn', (WidgetTester tester) async {
+    final tempDir = Directory.systemTemp;
+    final dummyFile = File('${tempDir.path}/test_dummy_receipt_${DateTime.now().millisecondsSinceEpoch}.jpg')
+      ..writeAsStringSync('dummy');
+    addTearDown(() {
+      if (dummyFile.existsSync()) dummyFile.deleteSync();
+    });
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TransactionController>.value(
+        value: controller,
+        child: MaterialApp(
+          home: ReviewTransactionScreen(
+            imagePath: dummyFile.path,
+            ocrService: _FakeNoDateOcrService(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Panel Debug OCR bị ẩn
+    expect(find.byKey(const Key('debug_ocr_panel')), findsNothing);
+
+    // Cảnh báo không đọc được ngày vẫn hiển thị bình thường
+    expect(
+      find.text('Không đọc được ngày, đang dùng hôm nay - hãy kiểm tra'),
+      findsOneWidget,
+    );
+  });
+}
+
+class _FakeNoDateOcrService extends OcrService {
+  @override
+  Future<OcrResult> processImage(String imagePath) async {
+    return const OcrResult(
+      text: 'QUAN AN TEST\n50,000 VND\nKHONG CO NGAY',
+      lines: [
+        OcrLine(text: 'QUAN AN TEST', boundingBox: Rect.fromLTWH(0, 0, 100, 20)),
+        OcrLine(text: '50,000 VND', boundingBox: Rect.fromLTWH(0, 30, 100, 20)),
+        OcrLine(text: 'KHONG CO NGAY', boundingBox: Rect.fromLTWH(0, 60, 100, 20)),
+      ],
+    );
+  }
 }

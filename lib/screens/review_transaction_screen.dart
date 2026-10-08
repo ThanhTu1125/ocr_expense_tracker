@@ -19,12 +19,14 @@ class ReviewTransactionScreen extends StatefulWidget {
     super.key,
     this.imagePath,
     this.debugOriginalPath,
+    this.ocrService,
   });
 
   static const routeName = '/review';
 
   final String? imagePath;
   final String? debugOriginalPath;
+  final OcrService? ocrService;
 
   @override
   State<ReviewTransactionScreen> createState() =>
@@ -32,7 +34,7 @@ class ReviewTransactionScreen extends StatefulWidget {
 }
 
 class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
-  final _ocrService = OcrService();
+  late final OcrService _ocrService;
   final _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _merchantController;
@@ -43,13 +45,16 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
   bool _isLoading = false;
   bool _isSaving = false;
 
+  bool _showDebugPanel = false;
   String? _rawOcrText;
+  List<String>? _reconstructedRows;
   AmountDebugTrace? _debugTrace;
   String? _dateWarning;
 
   @override
   void initState() {
     super.initState();
+    _ocrService = widget.ocrService ?? OcrService();
     _merchantController = TextEditingController();
     _amountController = TextEditingController();
     _dateController = TextEditingController();
@@ -59,6 +64,45 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
     } else {
       _dateController.text = DateFormat('dd/MM/yyyy').format(DateTime.now());
     }
+  }
+
+  void _toggleDebugPanel() {
+    if (!kDebugMode) return;
+    setState(() {
+      _showDebugPanel = !_showDebugPanel;
+      if (_showDebugPanel) {
+        if (_debugTrace == null && _rawOcrText != null) {
+          _debugTrace = AmountDebugTracer.trace(
+            _rawOcrText!,
+            rows: _reconstructedRows,
+          );
+        }
+      } else {
+        _cleanupDebugFiles();
+      }
+    });
+  }
+
+  Future<void> _cleanupDebugFiles() async {
+    if (!kDebugMode) return;
+    try {
+      if (widget.debugOriginalPath != null) {
+        final f = File(widget.debugOriginalPath!);
+        if (f.existsSync()) {
+          await f.delete();
+        }
+      }
+      final tempDir = await getTemporaryDirectory();
+      final entities = tempDir.listSync();
+      for (final entity in entities) {
+        if (entity is File &&
+            entity.path.contains('debug_original_before_crop_')) {
+          try {
+            await entity.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _processImage(String path) async {
@@ -87,46 +131,12 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
       final amount =
           RegexHelper.extractAmount(rawText, rows: reconstructedRows);
       final date = RegexHelper.extractDate(rawText, rows: reconstructedRows);
-      final trace = AmountDebugTracer.trace(rawText, rows: reconstructedRows);
-
-      if (kDebugMode) {
-        debugPrint('===============================================================');
-        debugPrint('[DEBUG OCR] THÔNG TIN PHÂN TÍCH OCR & SỐ TIỀN:');
-        debugPrint('---------------------------------------------------------------');
-        debugPrint('(a) TOÀN BỘ VĂN BẢN OCR THÔ (TỪNG DÒNG CÓ ĐÁNH SỐ DÒNG):');
-        final rawLines = rawText.split('\n');
-        for (int i = 0; i < rawLines.length; i++) {
-          debugPrint('  [Dòng ${(i + 1).toString().padLeft(2, '0')}] ${rawLines[i]}');
-        }
-        debugPrint('---------------------------------------------------------------');
-        debugPrint('(b) ẢNH ĐÃ CROP ĐANG ĐƯỢC ĐƯA VÀO OCR:');
-        debugPrint('  - Đường dẫn ảnh sau crop: $path');
-        if (widget.debugOriginalPath != null) {
-          debugPrint('  - Đường dẫn ảnh gốc trước crop: ${widget.debugOriginalPath}');
-        }
-        debugPrint('---------------------------------------------------------------');
-        debugPrint('(c) BẢNG PHÂN TÍCH TẤT CẢ CÁC DÒNG (KHÔNG BỎ SÓT DÒNG NÀO):');
-        for (final line in trace.allLines) {
-          final amtStr = line.parsedAmounts.isNotEmpty
-              ? line.parsedAmounts.map((a) => '${NumberFormat('#,###').format(a)} đ').join(', ')
-              : 'null';
-          debugPrint('  [Dòng ${(line.lineNumber).toString().padLeft(2, '0')}] '
-              'Text="${line.originalText}" | Norm="${line.normalizedText}" | '
-              'Rác=${line.isGarbage ? "CÓ (${line.garbageReason})" : "KHÔNG"} | '
-              'Tiền=$amtStr | '
-              'LoạiTrừ=${line.isExcluded ? "CÓ (${line.excludedReason})" : "KHÔNG"} | '
-              'TrạngThái=${line.status} | LýDo=${line.decisionReason}');
-        }
-        debugPrint('---------------------------------------------------------------');
-        debugPrint('(d) QUY TẮC ĐÃ CHỐT KẾT QUẢ:');
-        debugPrint('  - Quy tắc chốt: ${trace.chosenRule}');
-        debugPrint('  - Kết quả cuối cùng: ${trace.finalAmount != null ? "${NumberFormat('#,###').format(trace.finalAmount)} đ" : "null"}');
-        debugPrint('===============================================================');
-      }
 
       if (mounted) {
         _rawOcrText = rawText;
-        _debugTrace = trace;
+        _reconstructedRows = reconstructedRows;
+        _debugTrace = null; // Chỉ tính khi mở panel debug
+
         if (merchant != null) {
           _merchantController.text = merchant;
         }
@@ -258,6 +268,7 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
 
   @override
   void dispose() {
+    _cleanupDebugFiles();
     _merchantController.dispose();
     _amountController.dispose();
     _dateController.dispose();
@@ -271,7 +282,12 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Review Transaction'),
+        title: kDebugMode
+            ? GestureDetector(
+                onLongPress: _toggleDebugPanel,
+                child: const Text('Review Transaction'),
+              )
+            : const Text('Review Transaction'),
         actions: [
           IconButton(
             icon: const Icon(Icons.camera_alt),
@@ -457,7 +473,7 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
                         }
                       },
                     ),
-                    if (kDebugMode) ...[
+                    if (kDebugMode && _showDebugPanel) ...[
                       const SizedBox(height: 16),
                       _buildDebugOcrSection(),
                     ],
@@ -510,6 +526,10 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
   }
 
   Widget _buildDebugOcrSection() {
+    _debugTrace ??= _rawOcrText != null
+        ? AmountDebugTracer.trace(_rawOcrText!, rows: _reconstructedRows)
+        : null;
+
     final rawLines = (_rawOcrText ?? '').split('\n');
     final hasCroppedImage =
         widget.imagePath != null && File(widget.imagePath!).existsSync();
@@ -517,6 +537,7 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
         File(widget.debugOriginalPath!).existsSync();
 
     return Card(
+      key: const Key('debug_ocr_panel'),
       color: Colors.amber.shade50,
       elevation: 2,
       shape: RoundedRectangleBorder(
