@@ -25,6 +25,8 @@ class TransactionModel {
 
   String imagePath = '';
 
+  String thumbPath = '';
+
   TransactionModel({
     this.id = Isar.autoIncrement,
     this.amount = 0.0,
@@ -32,5 +34,6 @@ class TransactionModel {
     required this.date,
     this.category = TransactionCategory.food,
     this.imagePath = '',
+    this.thumbPath = '',
   });
 }

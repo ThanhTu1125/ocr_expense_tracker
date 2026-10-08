@@ -1,6 +1,36 @@
 # DEV HISTORY - Nhật ký phát triển OCR Expense Tracker
 Quy ước: ghi lại việc đã làm, lỗi gặp phải, cách sửa, quyết định kỹ thuật. Mục mới nhất nằm TRÊN CÙNG. Không xóa hay viết đè lịch sử cũ.
 
+## [Giai đoạn 2] Database An Toàn + CRUD (Repository + Provider) - 2026-10-08 17:16
+### Mục tiêu
+Tách tầng Repository (`TransactionRepository`), cài đặt `IsarTransactionRepository` (production) và `InMemoryTransactionRepository` (testing), loại bỏ hoàn toàn cơ chế fallback âm thầm `useMock`, bổ sung trường `thumbPath`, xử lý xóa ảnh an toàn khi delete, quản lý trạng thái bằng Provider (`TransactionController`), hiển thị màn hình lỗi kèm nút Thử lại khi Isar fail.
+
+### Các việc đã làm
+1. **Thiết kế Repository Pattern**:
+   - Tạo interface `TransactionRepository` với đầy đủ các phương thức: `init`, `save`, `update`, `delete`, `getAll`, `getByCategory`, `getByDateRange`, `getTransactionsByWeek`, `getExpensesByCategory`.
+   - Triển khai `IsarTransactionRepository`: mở database Isar trong production, không nuốt ngoại lệ. Khi xóa bản ghi, tự động xóa cả file ảnh gốc `imagePath` và ảnh thumbnail `thumbPath` trong khối `try/catch` an toàn.
+   - Triển khai `InMemoryTransactionRepository` (đặt tại `lib/testing/`): phục vụ trọn vẹn việc chạy test nhanh chóng, không phụ thuộc platform binary của Isar, tích hợp cờ `shouldThrowOnInit` để kiểm thử lỗi DB.
+2. **Loại bỏ cơ chế `useMock` âm thầm**:
+   - `DatabaseService` và Repository không còn bắt ngoại lệ để bật cờ `useMock` âm thầm lưu vào RAM.
+   - Khi `Isar.open` lỗi, ngoại lệ được ném ra để Controller và UI tiếp nhận, hiển thị màn hình báo lỗi cùng nút "Thử lại".
+3. **Cập nhật Model & Sinh mã Isar**:
+   - Bổ sung trường `thumbPath` (mặc định rỗng `''`) vào `TransactionModel`.
+   - Chạy `dart run build_runner build --delete-conflicting-outputs` tái tạo thành công `transaction.g.dart`.
+4. **Loại bỏ Dependency thừa**:
+   - Xóa bỏ `cupertino_icons` khỏi `pubspec.yaml` và chạy `flutter pub get`.
+5. **Chuyển đổi State Management sang Provider**:
+   - Tạo `TransactionController` (kế thừa `ChangeNotifier`) bao bọc `TransactionRepository`.
+   - Cung cấp `TransactionController` trên toàn ứng dụng thông qua `ChangeNotifierProvider` tại `lib/main.dart` (hỗ trợ Dependency Injection cho testing).
+   - Màn hình `DashboardScreen` và `ReviewTransactionScreen` dùng `context.watch<TransactionController>()` và `context.read<TransactionController>()`.
+   - Xây dựng giao diện hiển thị lỗi và nút "Thử lại" khi khởi tạo database thất bại trên `DashboardScreen`.
+   - Bổ sung tính năng xác nhận xóa giao dịch trên Dashboard.
+6. **Kiểm thử**:
+   - Tạo file kiểm thử mới `test/transaction_repository_test.dart` bao phủ toàn diện CRUD, xóa kèm file ảnh thực tế trong thư mục tạm (`Directory.systemTemp`), xóa file đã mất an toàn, lọc danh mục, lọc khoảng ngày, thống kê tuần và Controller state.
+   - Nâng cấp `test/widget_test.dart` sử dụng `InMemoryTransactionRepository` và Provider, thêm test case cho màn hình lỗi kết nối DB và nút "Thử lại".
+   - Kết quả: **48/48 tests passed (100%)**, `flutter analyze` đạt **0 issues**.
+
+---
+
 ## [Giai đoạn 1] Sửa lỗi logic dữ liệu RegexHelper - 2026-10-08 17:05
 ### Mục tiêu
 Phân cấp từ khóa mạnh/yếu cho bóc tách tổng tiền, loại trừ các dòng phụ (subtotal, thuế, giảm giá, tiền khách đưa/thối), loại bỏ dòng tiêu đề cột, hỗ trợ năm 2 số dd/MM/yy, validate ngày thật và trích xuất giờ giao dịch.

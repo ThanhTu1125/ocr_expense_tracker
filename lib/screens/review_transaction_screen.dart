@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:provider/provider.dart';
+
+import '../controllers/transaction_controller.dart';
 import '../models/transaction.dart';
-import '../services/database_service.dart';
 import '../services/ocr_service.dart';
 import '../utils/regex_helper.dart';
 
@@ -117,6 +119,8 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
       return;
     }
 
+    final controller = context.read<TransactionController>();
+
     setState(() {
       _isSaving = true;
     });
@@ -148,10 +152,11 @@ class _ReviewTransactionScreenState extends State<ReviewTransactionScreen> {
         date: date,
         category: _selectedCategory,
         imagePath: persistentImagePath,
+        thumbPath: '',
       );
 
-      // 3. Ghi vào database Isar
-      await DatabaseService.instance.saveTransaction(tx);
+      // 3. Ghi vào repository qua Provider
+      await controller.addTransaction(tx);
 
       // 4. Báo thành công và quay hẳn về Dashboard
       if (mounted) {

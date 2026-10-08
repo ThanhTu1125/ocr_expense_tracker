@@ -1,21 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
+import 'package:ocr_expense_tracker/controllers/transaction_controller.dart';
 import 'package:ocr_expense_tracker/main.dart';
 import 'package:ocr_expense_tracker/models/transaction.dart';
 import 'package:ocr_expense_tracker/screens/review_transaction_screen.dart';
-import 'package:ocr_expense_tracker/services/database_service.dart';
+import 'package:ocr_expense_tracker/testing/in_memory_transaction_repository.dart';
 import 'package:ocr_expense_tracker/widgets/bar_chart_painter.dart';
 import 'package:ocr_expense_tracker/widgets/pie_chart_painter.dart';
 
 void main() {
+  late InMemoryTransactionRepository repository;
+  late TransactionController controller;
+
   setUp(() {
-    DatabaseService.instance.useMock = true;
-    DatabaseService.instance.mockTransactions.clear();
+    repository = InMemoryTransactionRepository();
+    controller = TransactionController(repository: repository);
   });
 
   testWidgets('Test 1: Dashboard displays AppBar title and FloatingActionButton', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(MyApp(controller: controller));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1000));
 
@@ -24,7 +29,7 @@ void main() {
   });
 
   testWidgets('Test 2: Tapping FloatingActionButton navigates to ScannerScreen', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(MyApp(controller: controller));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1000));
 
@@ -37,8 +42,11 @@ void main() {
 
   testWidgets('Test 3: ReviewTransactionScreen renders correctly with null imagePath', (WidgetTester tester) async {
     await tester.pumpWidget(
-      const MaterialApp(
-        home: ReviewTransactionScreen(imagePath: null),
+      ChangeNotifierProvider<TransactionController>.value(
+        value: controller,
+        child: const MaterialApp(
+          home: ReviewTransactionScreen(imagePath: null),
+        ),
       ),
     );
 
@@ -46,7 +54,7 @@ void main() {
   });
 
   testWidgets('Test 4: Dashboard renders chart cards and empty state gracefully', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(MyApp(controller: controller));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1000));
 
@@ -57,7 +65,7 @@ void main() {
   });
 
   testWidgets('Test 5: Dashboard renders transactions when database has items', (WidgetTester tester) async {
-    DatabaseService.instance.mockTransactions.add(
+    await repository.save(
       TransactionModel(
         amount: 85000,
         merchantName: 'Highlands Coffee',
@@ -66,7 +74,7 @@ void main() {
       ),
     );
 
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(MyApp(controller: controller));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 1000));
 
@@ -118,5 +126,27 @@ void main() {
 
     await tester.pump();
     expect(find.byType(CustomPaint), findsWidgets);
+  });
+
+  testWidgets('Test 7: Dashboard hiển thị màn hình lỗi và nút Thử lại khi khởi tạo DB thất bại', (WidgetTester tester) async {
+    repository.shouldThrowOnInit = true;
+
+    await tester.pumpWidget(MyApp(controller: controller));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1000));
+
+    // Hiển thị màn hình lỗi
+    expect(find.text('Lỗi kết nối cơ sở dữ liệu'), findsOneWidget);
+    expect(find.text('Thử lại'), findsOneWidget);
+
+    // Bấm nút Thử lại sau khi DB đã sẵn sàng
+    repository.shouldThrowOnInit = false;
+    await tester.tap(find.text('Thử lại'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1000));
+
+    // Quay lại màn hình Dashboard bình thường
+    expect(find.text('Lỗi kết nối cơ sở dữ liệu'), findsNothing);
+    expect(find.text('Chi tiêu tuần này'), findsOneWidget);
   });
 }

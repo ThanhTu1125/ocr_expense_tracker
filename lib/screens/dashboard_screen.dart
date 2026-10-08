@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../controllers/transaction_controller.dart';
 import '../models/transaction.dart';
-import '../services/database_service.dart';
 import '../widgets/bar_chart_painter.dart';
 import '../widgets/pie_chart_painter.dart';
 import 'scanner_screen.dart';
@@ -16,44 +17,15 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  bool _isLoading = false;
-  List<TransactionModel> _allTransactions = [];
-  List<TransactionModel> _weeklyTransactions = [];
-  Map<TransactionCategory, double> _categoryExpenses = {};
-
   @override
   void initState() {
     super.initState();
-    _loadData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<TransactionController>().loadTransactions();
+    });
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-    try {
-      final db = DatabaseService.instance;
-      final all = await db.getAllTransactions();
-      final week = await db.getTransactionsByWeek();
-      final byCat = await db.getExpensesByCategory();
-
-      if (mounted) {
-        setState(() {
-          _allTransactions = all;
-          _weeklyTransactions = week;
-          _categoryExpenses = byCat;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('DashboardScreen _loadData warning (expected in test): $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  List<double> _computeDailyExpenses() {
+  List<double> _computeDailyExpenses(List<TransactionModel> weeklyTransactions) {
     final now = DateTime.now();
     final startOfWeek = DateTime(
       now.year,
@@ -62,7 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
 
     final daily = List<double>.filled(7, 0.0);
-    for (final tx in _weeklyTransactions) {
+    for (final tx in weeklyTransactions) {
       final diff = DateTime(tx.date.year, tx.date.month, tx.date.day)
           .difference(startOfWeek)
           .inDays;
@@ -73,9 +45,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return daily;
   }
 
-  Map<String, double> _computeCategoryMap() {
+  Map<String, double> _computeCategoryMap(
+    Map<TransactionCategory, double> categoryExpenses,
+  ) {
     final Map<String, double> map = {};
-    for (final entry in _categoryExpenses.entries) {
+    for (final entry in categoryExpenses.entries) {
       map[_getCategoryDisplayName(entry.key)] = entry.value;
     }
     return map;
@@ -146,14 +120,111 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return '$d/$m/$y';
   }
 
+  Future<void> _confirmDelete(TransactionModel tx) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Xác nhận xóa'),
+        content: Text(
+          'Bạn có chắc chắn muốn xóa giao dịch "${tx.merchantName.isNotEmpty ? tx.merchantName : 'Hóa đơn'}" này không? File ảnh hóa đơn sẽ bị xóa theo.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final controller = context.read<TransactionController>();
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        await controller.deleteTransaction(tx.id);
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Đã xóa giao dịch thành công.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } catch (e) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Lỗi khi xóa giao dịch: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final dailyExpenses = _computeDailyExpenses();
-    final categoryMap = _computeCategoryMap();
-    final totalWeekly = _weeklyTransactions.fold<double>(
+    final controller = context.watch<TransactionController>();
+
+    // Màn hình lỗi khi khởi tạo Isar / Database gặp sự cố (Yêu cầu 2.2)
+    if (controller.hasError) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Dashboard'),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  color: Colors.redAccent,
+                  size: 64,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Lỗi kết nối cơ sở dữ liệu',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  controller.errorMessage ?? 'Đã xảy ra lỗi không xác định',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: () {
+                    controller.loadTransactions();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Thử lại'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final dailyExpenses = _computeDailyExpenses(controller.weeklyTransactions);
+    final categoryMap = _computeCategoryMap(controller.categoryExpenses);
+    final totalWeekly = controller.weeklyTransactions.fold<double>(
       0.0,
       (sum, tx) => sum + tx.amount,
     );
+    final allTransactions = controller.transactions;
 
     return Scaffold(
       appBar: AppBar(
@@ -162,19 +233,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Làm mới',
-            onPressed: _loadData,
+            onPressed: () {
+              context.read<TransactionController>().loadTransactions();
+            },
           ),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _loadData,
+        onRefresh: () =>
+            context.read<TransactionController>().loadTransactions(),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (_isLoading) ...[
+              if (controller.isLoading) ...[
                 const LinearProgressIndicator(),
                 const SizedBox(height: 12),
               ],
@@ -280,7 +354,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: TransactionCategory.values.map((cat) {
                                 final name = _getCategoryDisplayName(cat);
-                                final amount = _categoryExpenses[cat] ?? 0.0;
+                                final amount = controller.categoryExpenses[cat] ?? 0.0;
                                 final color = _getCategoryColor(cat);
 
                                 return Padding(
@@ -335,7 +409,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
               const SizedBox(height: 12),
 
-              if (_allTransactions.isEmpty)
+              if (allTransactions.isEmpty)
                 Center(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 32.0),
@@ -363,9 +437,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _allTransactions.length,
+                  itemCount: allTransactions.length,
                   itemBuilder: (context, index) {
-                    final tx = _allTransactions[index];
+                    final tx = allTransactions[index];
                     final cat = tx.category;
                     final catColor = _getCategoryColor(cat);
                     final catIcon = _getCategoryIcon(cat);
@@ -396,13 +470,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             color: Colors.grey.shade600,
                           ),
                         ),
-                        trailing: Text(
-                          '-${_formatCurrency(tx.amount)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.redAccent,
-                            fontSize: 14,
-                          ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '-${_formatCurrency(tx.amount)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.redAccent,
+                                fontSize: 14,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: Colors.grey,
+                                size: 20,
+                              ),
+                              tooltip: 'Xóa',
+                              onPressed: () => _confirmDelete(tx),
+                            ),
+                          ],
                         ),
                       ),
                     );
@@ -415,7 +503,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           await Navigator.pushNamed(context, ScannerScreen.routeName);
-          _loadData();
+          if (context.mounted) {
+            context.read<TransactionController>().loadTransactions();
+          }
         },
         child: const Icon(Icons.camera_alt),
       ),

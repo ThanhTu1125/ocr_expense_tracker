@@ -3,6 +3,8 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/transaction.dart';
 
+/// Lớp DatabaseService phục vụ truy cập cơ sở dữ liệu Isar.
+/// Đã loại bỏ cơ chế useMock tự động bật trong production để tránh việc lưu RAM âm thầm khi có lỗi.
 class DatabaseService {
   static DatabaseService instance = DatabaseService._internal();
 
@@ -11,42 +13,31 @@ class DatabaseService {
   factory DatabaseService() => instance;
 
   Isar? _isar;
-  bool useMock = false;
-  final List<TransactionModel> mockTransactions = [];
 
   Isar get isar {
     if (_isar == null || !_isar!.isOpen) {
       throw StateError(
-        'DatabaseService has not been initialized. Call init() first.',
+        'DatabaseService chưa được khởi tạo. Hãy gọi init() trước.',
       );
     }
     return _isar!;
   }
 
-  bool get isInitialized => useMock || (_isar != null && _isar!.isOpen);
+  bool get isInitialized => _isar != null && _isar!.isOpen;
 
   Future<void> init() async {
-    if (useMock) return;
     if (_isar != null && _isar!.isOpen) return;
 
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      _isar = await Isar.open(
-        [TransactionModelSchema],
-        directory: dir.path,
-      );
-    } catch (_) {
-      useMock = true;
-    }
+    final dir = await getApplicationDocumentsDirectory();
+    _isar = await Isar.open(
+      [TransactionModelSchema],
+      directory: dir.path,
+    );
   }
 
   Future<void> saveTransaction(TransactionModel tx) async {
     if (!isInitialized) {
       await init();
-    }
-    if (useMock) {
-      mockTransactions.insert(0, tx);
-      return;
     }
     final db = isar;
     await db.writeTxn(() async {
@@ -57,9 +48,6 @@ class DatabaseService {
   Future<List<TransactionModel>> getAllTransactions() async {
     if (!isInitialized) {
       await init();
-    }
-    if (useMock) {
-      return List.unmodifiable(mockTransactions);
     }
     final db = isar;
     return await db.transactionModels.where().sortByDateDesc().findAll();
@@ -83,15 +71,8 @@ class DatabaseService {
       23,
       59,
       59,
-      73,
+      999,
     );
-
-    if (useMock) {
-      return mockTransactions.where((tx) {
-        return (tx.date.isAfter(startOfWeek) || tx.date.isAtSameMomentAs(startOfWeek)) &&
-            (tx.date.isBefore(endOfWeek) || tx.date.isAtSameMomentAs(endOfWeek));
-      }).toList();
-    }
 
     final db = isar;
     return await db.transactionModels

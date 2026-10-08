@@ -35,6 +35,11 @@ const TransactionModelSchema = CollectionSchema(
       name: r'merchantName',
       type: IsarType.string,
     ),
+    r'thumbPath': PropertySchema(
+      id: 5,
+      name: r'thumbPath',
+      type: IsarType.string,
+    ),
   },
 
   estimateSize: _transactionModelEstimateSize,
@@ -60,6 +65,7 @@ int _transactionModelEstimateSize(
   var bytesCount = offsets.last;
   bytesCount += 3 + object.imagePath.length * 3;
   bytesCount += 3 + object.merchantName.length * 3;
+  bytesCount += 3 + object.thumbPath.length * 3;
   return bytesCount;
 }
 
@@ -74,6 +80,7 @@ void _transactionModelSerialize(
   writer.writeDateTime(offsets[2], object.date);
   writer.writeString(offsets[3], object.imagePath);
   writer.writeString(offsets[4], object.merchantName);
+  writer.writeString(offsets[5], object.thumbPath);
 }
 
 TransactionModel _transactionModelDeserialize(
@@ -93,6 +100,7 @@ TransactionModel _transactionModelDeserialize(
     id: id,
     imagePath: reader.readStringOrNull(offsets[3]) ?? '',
     merchantName: reader.readStringOrNull(offsets[4]) ?? '',
+    thumbPath: reader.readStringOrNull(offsets[5]) ?? '',
   );
   return object;
 }
@@ -117,6 +125,8 @@ P _transactionModelDeserializeProp<P>(
     case 3:
       return (reader.readStringOrNull(offset) ?? '') as P;
     case 4:
+      return (reader.readStringOrNull(offset) ?? '') as P;
+    case 5:
       return (reader.readStringOrNull(offset) ?? '') as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -756,6 +766,147 @@ extension TransactionModelQueryFilter
       );
     });
   }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'thumbPath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'thumbPath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'thumbPath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'thumbPath',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'thumbPath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'thumbPath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'thumbPath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'thumbPath',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'thumbPath', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterFilterCondition>
+  thumbPathIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'thumbPath', value: ''),
+      );
+    });
+  }
 }
 
 extension TransactionModelQueryObject
@@ -832,6 +983,20 @@ extension TransactionModelQuerySortBy
   sortByMerchantNameDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'merchantName', Sort.desc);
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterSortBy>
+  sortByThumbPath() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'thumbPath', Sort.asc);
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterSortBy>
+  sortByThumbPathDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'thumbPath', Sort.desc);
     });
   }
 }
@@ -919,6 +1084,20 @@ extension TransactionModelQuerySortThenBy
       return query.addSortBy(r'merchantName', Sort.desc);
     });
   }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterSortBy>
+  thenByThumbPath() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'thumbPath', Sort.asc);
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QAfterSortBy>
+  thenByThumbPathDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'thumbPath', Sort.desc);
+    });
+  }
 }
 
 extension TransactionModelQueryWhereDistinct
@@ -954,6 +1133,13 @@ extension TransactionModelQueryWhereDistinct
   distinctByMerchantName({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'merchantName', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<TransactionModel, TransactionModel, QDistinct>
+  distinctByThumbPath({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'thumbPath', caseSensitive: caseSensitive);
     });
   }
 }
@@ -995,6 +1181,12 @@ extension TransactionModelQueryProperty
   merchantNameProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'merchantName');
+    });
+  }
+
+  QueryBuilder<TransactionModel, String, QQueryOperations> thumbPathProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'thumbPath');
     });
   }
 }

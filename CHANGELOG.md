@@ -2,6 +2,38 @@
 
 Quy ước: mỗi bước thêm một mục mới ở TRÊN CÙNG, gồm: ngày giờ, tên bước, các thay đổi, file bị ảnh hưởng.
 
+## [Giai đoạn 2] Database An Toàn + CRUD (Repository + Provider) - 2026-10-08 17:16
+### Đã thực hiện
+- Thiết kế interface `TransactionRepository`: cung cấp đầy đủ các phương thức `init`, `save`, `update`, `delete`, `getAll`, `getByCategory`, `getByDateRange`, `getTransactionsByWeek`, `getExpensesByCategory`.
+- Triển khai `IsarTransactionRepository` cho production:
+  - Loại bỏ hoàn toàn cơ chế fallback âm thầm `useMock = true` khi Isar mở thất bại. Ném ngoại lệ trực tiếp để UI xử lý minh bạch.
+  - Triển khai hàm `delete`: xóa cả file ảnh gốc (`imagePath`) và ảnh thumbnail (`thumbPath`) trên ổ đĩa, bọc `try/catch` an toàn không crash nếu file đã bị xóa trước đó.
+- Triển khai `InMemoryTransactionRepository` dành riêng cho môi trường kiểm thử (đặt tại `lib/testing/`), hỗ trợ cờ `shouldThrowOnInit` để kiểm thử kịch bản lỗi DB.
+- Cập nhật `TransactionModel`: bổ sung trường `thumbPath` (mặc định rỗng `''`), chạy `build_runner` tái tạo schema Isar.
+- Xóa bỏ hoàn toàn dependency dư thừa `cupertino_icons` khỏi `pubspec.yaml`.
+- Tích hợp `Provider` chuẩn mực với `TransactionController` (`ChangeNotifier`):
+  - Quản lý trạng thái tải (`isLoading`), lỗi (`hasError`, `errorMessage`), danh sách và các chỉ số thống kê.
+  - Cập nhật `DashboardScreen` và `ReviewTransactionScreen` sử dụng `context.watch` / `context.read`.
+  - Màn hình `DashboardScreen` tự động hiển thị giao diện báo lỗi kèm nút "Thử lại" khi khởi tạo database thất bại.
+  - Bổ sung nút xóa giao dịch kèm xác nhận Dialog và thông báo SnackBar.
+- Bổ sung bộ kiểm thử toàn diện `test/transaction_repository_test.dart` (CRUD, xóa kèm file ảnh trong thư mục tạm, lọc danh mục, lọc khoảng ngày) và nâng cấp `test/widget_test.dart` (tổng 48/48 tests passed 100%, `flutter analyze` 0 issues).
+### File ảnh hưởng
+- `lib/models/transaction.dart`
+- `lib/models/transaction.g.dart`
+- `lib/repositories/transaction_repository.dart`
+- `lib/repositories/isar_transaction_repository.dart`
+- `lib/testing/in_memory_transaction_repository.dart`
+- `lib/controllers/transaction_controller.dart`
+- `lib/services/database_service.dart`
+- `lib/main.dart`
+- `lib/screens/dashboard_screen.dart`
+- `lib/screens/review_transaction_screen.dart`
+- `pubspec.yaml`
+- `pubspec.lock`
+- `test/transaction_repository_test.dart`
+- `test/widget_test.dart`
+- `CHANGELOG.md`
+
 ## [Giai đoạn 1] Sửa lỗi logic dữ liệu RegexHelper - 2026-10-08 17:05
 ### Đã thực hiện
 - Phân cấp từ khóa `RegexHelper.extractAmount` thành 2 mức:
