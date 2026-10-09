@@ -10,3 +10,19 @@
 -dontwarn com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions$Builder
 -dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 -dontwarn com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions$Builder
+
+# Giữ lại toàn bộ lớp và interface của Google ML Kit
+-keep class com.google.mlkit.** { *; }
+-keep interface com.google.mlkit.** { *; }
+
+# Giữ lại các lớp nội bộ của Google Play Services / ML Kit
+-keep class com.google.android.gms.internal.mlkit_** { *; }
+-keep class com.google.android.gms.tasks.** { *; }
+-keep class com.google.android.datatransport.** { *; }
+
+# Giữ lại các plugin Flutter ML Kit
+-keep class com.google_mlkit_commons.** { *; }
+-keep class com.google_mlkit_text_recognition.** { *; }
+
+# Giữ lại thuộc tính phục vụ reflection và annotation
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
